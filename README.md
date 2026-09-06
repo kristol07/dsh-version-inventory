@@ -21,7 +21,9 @@ Harness 把插件挂在**两个平面**上，面板两边都读：
 
 1. 遍历全局条目（跳过 group）和每个 preset 的 composition 行；
 2. 用 Loader 自己的解析器（`loader.internal.resolveSync`，退化时用 `createRequire(baseUrl).resolve`）把说明符解析成模块 URL，再从该文件向上找最近的 `package.json` —— 刻意绕开 `exports` 映射，因为不是每个包都导出 `./package.json`；
-3. 读出 `name` / `version` / `description` / `dsh.bundle` / `dsh.client`，并按包名把同一个包的多个挂载合并（子路径条目 `@deepseek-ai/dsh-tool-subagent/model-selection-settings` 会归到 `@deepseek-ai/dsh-tool-subagent` 名下）。
+3. 读出 `name` / `version` / `description` / `dsh.bundle` / `dsh.client`，并**按包所在目录**把多个挂载合并（子路径条目 `@deepseek-ai/dsh-tool-subagent/model-selection-settings` 会归到 `@deepseek-ai/dsh-tool-subagent` 名下，因为两者解析到同一个目录）。
+
+按目录而不是按包名归并是有意的：**同一个包同时存在两份不同版本**是最该被发现的情况 —— Cordis 服务、品牌类型和 `instanceof` 全都按运行时身份匹配，两份副本会静默失配 —— 而按包名归并恰好会把第二份折叠掉、连版本都丢了。现在两份副本各占一行、并排排序，各自带「副本」标记，顶部还有一条红色提示点名。
 
 **解析基址的顺序不是随意的**：preset 行的包名要用 **profile 的基址**解析，preset 自己的目录只作为相对路径的兜底。这跟名册自己的做法一致 —— 用户自建的 preset 放在 harness home 下，Node 向上找 `node_modules` 永远走不到 harness 的依赖，所以 preset 目录是解析包名的错误基址。路径型说明符还会先 `existsSync` 校验，否则一个不存在的相对路径会向上撞到某个无关的 `package.json` 并被当成答案。
 
@@ -85,6 +87,6 @@ dsh plugin --profile web add link:C:/Users/joell/.dsh/plugins/dsh-version-invent
 - **一次读取一份快照**：面板挂载时读一次，之后靠「刷新」按钮，不订阅 Loader 变化。
 - **只读**：不提供启用/停用开关。
 - **版本来自磁盘上的 `package.json`**：一个热更新过、但 `package.json` 未随之改动的包，显示的仍是磁盘上的版本号。
-- **同名包只报一个版本**：清单按包名归并，所以同一个包同时存在两份不同版本时，第二份会被折叠掉 —— 而这恰恰是最该被发现的情况。
+- **副本检测只看解析结果**：两份副本必须都被某个挂载引用才会被发现。装在磁盘上但没有任何条目引用的第二份副本，面板看不到。
 - **preset 行的 fiber 状态取决于是否已挂载**：一个还没有会话挂载过的 preset，其行只有启用状态，没有运行状态；`conditional` 表示 `!!js` 门只有真正挂载时才能判定。
 - **路由只对本地同源开放**：清单会暴露宿主文件路径，所以 `/dsh-version-inventory/api/list` 要求 loopback host、同源 Origin，以及 `X-DSH-Version-Inventory: 1` 头。

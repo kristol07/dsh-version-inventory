@@ -67,6 +67,13 @@ export interface PackageRow {
   readonly isBundle: boolean
   /** True when a harness package's version differs from the running harness version. */
   readonly versionDrift: boolean
+  /**
+   * True when another loaded package declares the same name from a different
+   * directory — two copies of one package in one process. Cordis services,
+   * branded types, and `instanceof` all key on runtime identity, so duplicate
+   * copies mismatch silently; this is the condition worth finding.
+   */
+  readonly duplicate: boolean
   readonly entries: readonly EntryRow[]
 }
 

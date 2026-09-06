@@ -124,6 +124,71 @@ describe('global plane', () => {
   })
 })
 
+describe('duplicate copies', () => {
+  /** A `file:` entry for one fixture copy. */
+  const copy = name => pathToFileURL(join(PACKAGE_ROOT, 'test/fixtures', name, 'index.js')).href
+
+  it('keeps both copies of one name instead of folding the second away', async () => {
+    const ctx = await harness()
+    await ctx.loader.create({ name: copy('copy-a'), disabled: true })
+    await ctx.loader.create({ name: copy('copy-b'), disabled: true })
+
+    const inventory = await collect(ctx)
+    const rows = inventory.packages.filter(row => row.name === 'duplicated-fixture')
+    assert.equal(rows.length, 2)
+    assert.deepEqual(rows.map(row => row.version), ['1.0.0', '2.0.0'])
+    assert.equal(rows.every(row => row.duplicate), true)
+    assert.notEqual(rows[0].path, rows[1].path)
+  })
+
+  it('names the duplicated packages in a warning', async () => {
+    const ctx = await harness()
+    await ctx.loader.create({ name: copy('copy-a'), disabled: true })
+    await ctx.loader.create({ name: copy('copy-b'), disabled: true })
+
+    const { warnings } = await collect(ctx)
+    assert.ok(warnings.some(warning => warning.includes('duplicated-fixture')), warnings.join(' / '))
+  })
+
+  it('still merges two specifiers that reach the same directory', async () => {
+    const ctx = await harness()
+    await ctx.loader.create({ name: '@deepseek-ai/dsh-client-ui-settings', disabled: true })
+    await ctx.loader.create({ name: '@deepseek-ai/dsh-client-ui-settings/client', disabled: true })
+
+    const row = pkg(await collect(ctx), '@deepseek-ai/dsh-client-ui-settings')
+    assert.equal(row.entries.length, 2)
+    assert.equal(row.duplicate, false)
+  })
+
+  it('does not call one package a duplicate of itself across both planes', async () => {
+    const ctx = await harness()
+    await ctx.loader.create({ name: copy('copy-a'), disabled: true })
+    ctx.provide('agentPresets', {
+      list: async () => [],
+      compositionInventory: async () => [{
+        id: 'standard',
+        trust: 'system',
+        isDefault: true,
+        rows: [{ entryId: 'fixture', moduleName: copy('copy-a'), enabled: true }],
+      }],
+    })
+
+    const row = pkg(await collect(ctx), 'duplicated-fixture')
+    assert.equal(row.duplicate, false)
+    assert.equal(row.entries.length, 2)
+  })
+
+  it('keeps two unresolvable specifiers apart', async () => {
+    const ctx = await harness()
+    await ctx.loader.create({ name: 'missing-one', disabled: true })
+    await ctx.loader.create({ name: 'missing-two', disabled: true })
+
+    const inventory = await collect(ctx)
+    assert.equal(inventory.packages.length, 2)
+    assert.equal(inventory.packages.every(row => !row.duplicate), true)
+  })
+})
+
 describe('harness version', () => {
   it('marks the answer inferred when no @deepseek-ai/dsh install is reachable', async () => {
     const ctx = await harness()

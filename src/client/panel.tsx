@@ -127,11 +127,14 @@ function PackageCard({ row }: { row: PackageRow }): ReactNode {
           label={live ? phaseText(summaryPhase(row.entries)) : '已停用'}
         />
         <span className="dvi-name mono">{row.name}</span>
+        {row.duplicate && (
+          <span className="dvi-tag bad" title="同一个包在本进程里存在多份副本">副本</span>
+        )}
         <PlaneTags entries={row.entries}/>
         {row.isBundle && <span className="dvi-tag">bundle</span>}
         {row.hasClientHalf && <span className="dvi-tag">web</span>}
         <span
-          className={'dvi-ver' + (row.versionDrift ? ' drift' : row.version === null ? ' none' : '')}
+          className={'dvi-ver' + (row.duplicate || row.versionDrift ? ' drift' : row.version === null ? ' none' : '')}
           title={row.versionDrift ? '版本与当前 Harness 版本不一致' : undefined}
         >
           {row.version ?? '版本未知'}
@@ -180,7 +183,8 @@ function Group(
         {GROUP_TEXT[origin]}
         <span className="muted">{rows.length} 个包</span>
       </summary>
-      {rows.map(row => <PackageCard key={row.name} row={row}/>)}
+      {/* Two copies of one package share a name, so the path is the identity. */}
+      {rows.map(row => <PackageCard key={row.path ?? row.name} row={row}/>)}
     </details>
   )
 }
@@ -282,6 +286,7 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
   const unhealthy = packages.filter(row =>
     row.entries.some(entry => entry.enabled === true && entry.fiberPhase !== 'active')).length
   const drifted = packages.filter(row => row.versionDrift).length
+  const duplicated = new Set(packages.filter(row => row.duplicate).map(row => row.name))
   const expanded = query.trim() !== '' || plane !== 'all'
 
   return (
@@ -316,6 +321,12 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
         </div>
       </section>
 
+      {duplicated.size > 0 && (
+        <p className="dvi-note bad">
+          有 {duplicated.size} 个包在本进程里存在多份副本（{[...duplicated].join('、')}）。
+          Cordis 服务、品牌类型和 <code>instanceof</code> 都按运行时身份匹配，重复副本会静默失配 —— 展开对比它们的「位置」找出多出来的那份。
+        </p>
+      )}
       {drifted > 0 && (
         <p className="dvi-note">
           有 {drifted} 个官方包的版本与当前 Harness 版本（{harness.version}）不一致，已在列表中标出。

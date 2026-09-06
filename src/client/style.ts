@@ -35,6 +35,8 @@ export const css = `
 .dvi-metric.bad b{color:var(--dsw-alias-state-error-primary,#e5484d)}
 
 .dvi-note{border-radius:9px;padding:9px 12px;font-size:12px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#d98324) 10%,transparent);color:var(--dsw-alias-state-warn-label,#8a5a12)}
+.dvi-note.bad{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5484d) 10%,transparent);color:var(--dsw-alias-state-error-primary,#e5484d)}
+.dvi-note code{font-family:var(--ds-font-family-code,'SF Mono',Consolas,monospace)}
 .dvi-error{border-radius:9px;padding:12px;font-size:12px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5484d) 10%,transparent);color:var(--dsw-alias-state-error-primary,#e5484d);display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
 
 .dvi-toolbar{display:flex;gap:8px;align-items:center}
@@ -65,6 +67,7 @@ export const css = `
 
 .dvi-tag{font-size:10px;line-height:1.6;padding:0 6px;border-radius:4px;background:var(--dsw-alias-bg-layer-3,#0000000a);color:var(--dsw-alias-label-tertiary,#00000073);white-space:nowrap}
 .dvi-tag.preset{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 12%,transparent);color:var(--dsw-alias-state-business-primary,#4176e6)}
+.dvi-tag.bad{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5484d) 14%,transparent);color:var(--dsw-alias-state-error-primary,#e5484d)}
 .dvi-preset{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 14px}
 .dvi-preset .dvi-ver{margin-left:auto}
 .dvi-detail{padding:2px 14px 13px 30px;font-size:12px;display:grid;gap:3px 14px;grid-template-columns:auto minmax(0,1fr)}

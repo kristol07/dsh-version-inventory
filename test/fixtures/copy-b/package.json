@@ -1,0 +1,7 @@
+{
+  "name": "duplicated-fixture",
+  "version": "2.0.0",
+  "description": "Second copy: same name, different version, different directory.",
+  "type": "module",
+  "main": "./index.js"
+}

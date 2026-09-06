@@ -222,9 +222,15 @@ interface PackageDraft {
 }
 
 /**
- * Packages found so far, keyed by manifest name. Both planes fold into one
- * index: the version question is plane-independent, and a package mounted on
- * both planes should answer once, with every mount listed under it.
+ * Packages found so far, keyed by the directory that owns them. Both planes
+ * fold into one index: the version question is plane-independent, and a package
+ * mounted on both planes should answer once, with every mount listed under it.
+ *
+ * The key is the PATH, not the name, and that is the whole point. Two copies of
+ * one package at two versions is the condition most worth finding — duplicate
+ * runtime identities mismatch silently — and keying by name would fold the
+ * second copy into the first and drop its version. A mount that resolved to no
+ * package keys by its specifier instead, so two unresolvable names stay apart.
  */
 class PackageIndex {
   private readonly drafts = new Map<string, PackageDraft>()
@@ -239,14 +245,15 @@ class PackageIndex {
    */
   add(located: LocatedPackage | undefined, row: EntryRow): void {
     if (located === undefined && !row.specifier.startsWith('cordis:')) this.unresolved += 1
-    const name = stringField(located?.manifest.name) ?? row.specifier
-    const existing = this.drafts.get(name)
+    const key = located?.dir ?? row.specifier
+    const existing = this.drafts.get(key)
     if (existing !== undefined) {
       existing.entries.push(row)
       return
     }
     const manifest = located?.manifest
-    this.drafts.set(name, {
+    const name = stringField(manifest?.name) ?? row.specifier
+    this.drafts.set(key, {
       name,
       version: stringField(manifest?.version),
       description: stringField(manifest?.description),
@@ -262,6 +269,17 @@ class PackageIndex {
   values(): PackageDraft[] {
     return [...this.drafts.values()]
   }
+}
+
+/**
+ * Names claimed by more than one loaded directory.
+ * @param drafts - collected packages.
+ * @returns the duplicated names, sorted.
+ */
+function duplicateNames(drafts: readonly PackageDraft[]): ReadonlySet<string> {
+  const seen = new Map<string, number>()
+  for (const draft of drafts) seen.set(draft.name, (seen.get(draft.name) ?? 0) + 1)
+  return new Set([...seen].filter(([, count]) => count > 1).map(([name]) => name).sort())
 }
 
 /** Read a manifest string field, or null when it is absent or wrongly typed. */
@@ -481,6 +499,13 @@ export async function collect(ctx: Context): Promise<VersionInventory> {
   }
 
   const drafted = index.values()
+  const duplicates = duplicateNames(drafted)
+  if (duplicates.size > 0) {
+    warnings.push(
+      '同一个包存在多份副本：' + [...duplicates].join('、')
+      + '。Cordis 服务、品牌类型和 instanceof 都按运行时身份匹配，重复副本会静默失配。',
+    )
+  }
   const install = locateHarness(baseUrl, warnings)
   const harnessVersion = install.version ?? modalHarnessVersion(drafted)
   const harness: HarnessRow = {
@@ -502,9 +527,14 @@ export async function collect(ctx: Context): Promise<VersionInventory> {
       ...draft,
       versionDrift: draft.origin === 'harness' && draft.version !== null
         && harnessVersion !== null && draft.version !== harnessVersion,
+      duplicate: duplicates.has(draft.name),
     }))
+    // Same-name copies sort adjacent, so a duplicate reads as a pair rather
+    // than as two unrelated rows in a long list.
     .sort((left, right) =>
-      order[left.origin] - order[right.origin] || left.name.localeCompare(right.name))
+      order[left.origin] - order[right.origin]
+      || left.name.localeCompare(right.name)
+      || (left.path ?? '').localeCompare(right.path ?? ''))
 
   return { collectedAt: new Date().toISOString(), harness, packages, presets, warnings }
 }

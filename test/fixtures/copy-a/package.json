@@ -1,0 +1,7 @@
+{
+  "name": "duplicated-fixture",
+  "version": "1.0.0",
+  "description": "First copy: the one an older install left behind.",
+  "type": "module",
+  "main": "./index.js"
+}
