@@ -12,8 +12,9 @@ export const css = `
 .dvi button{font:inherit;cursor:pointer;color:inherit;background:var(--dsw-alias-bg-layer-1,#fff);border:0.5px solid var(--dsw-alias-border-l3,#0000001f);border-radius:7px;padding:5px 11px}
 .dvi button:hover{background:var(--dsw-alias-interactive-bg-hover,#00000008)}
 .dvi button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px}
-.dvi input{font:inherit;color:inherit;width:100%;padding:6px 10px;border-radius:7px;background:var(--dsw-alias-bg-layer-1,#fff);border:0.5px solid var(--dsw-alias-border-l4,#0000002b)}
-.dvi input:focus-visible{outline:none;border-color:var(--dsw-alias-state-business-primary,#4176e6);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 18%,transparent)}
+.dvi input,.dvi select{font:inherit;color:inherit;width:100%;padding:6px 10px;border-radius:7px;background:var(--dsw-alias-bg-layer-1,#fff);border:0.5px solid var(--dsw-alias-border-l4,#0000002b)}
+.dvi select{width:auto;cursor:pointer}
+.dvi input:focus-visible,.dvi select:focus-visible{outline:none;border-color:var(--dsw-alias-state-business-primary,#4176e6);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 18%,transparent)}
 .dvi .mono{font-family:var(--ds-font-family-code,'SF Mono',Consolas,monospace)}
 .dvi .muted{color:var(--dsw-alias-label-tertiary,#00000073)}
 
@@ -63,6 +64,9 @@ export const css = `
 .dvi-dot.off{background:transparent;border:1px solid var(--dsw-alias-label-tertiary,#00000073)}
 
 .dvi-tag{font-size:10px;line-height:1.6;padding:0 6px;border-radius:4px;background:var(--dsw-alias-bg-layer-3,#0000000a);color:var(--dsw-alias-label-tertiary,#00000073);white-space:nowrap}
+.dvi-tag.preset{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 12%,transparent);color:var(--dsw-alias-state-business-primary,#4176e6)}
+.dvi-preset{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 14px}
+.dvi-preset .dvi-ver{margin-left:auto}
 .dvi-detail{padding:2px 14px 13px 30px;font-size:12px;display:grid;gap:3px 14px;grid-template-columns:auto minmax(0,1fr)}
 .dvi-detail dt{color:var(--dsw-alias-label-tertiary,#00000073)}
 .dvi-detail dd{margin:0;overflow-wrap:anywhere}

@@ -10,18 +10,48 @@ export type FiberPhase = 'pending' | 'loading' | 'active' | 'failed' | 'unloadin
 /** Where a package came from, decided by its manifest name, not by its path. */
 export type PackageOrigin = 'harness' | 'third-party' | 'builtin'
 
-/** One Loader entry, resolved back to the package that owns its module. */
+/**
+ * Effective enablement of one mount. `'conditional'` marks a `!!js` disabled
+ * gate on a preset composition no session has mounted, which only a Loader
+ * context can decide.
+ */
+export type Enablement = boolean | 'conditional'
+
+/**
+ * Which of the harness's two planes a mount sits on.
+ *
+ * `global` is the profile's own Loader tree — the bundle patch layers under the
+ * user's `cordis.patch.yml`. `preset` is one agent preset's composition, which
+ * mounts per session when that preset is selected, so a preset row can be real
+ * and reachable without ever appearing in `ctx.loader.entries()`.
+ */
+export type EntryPlane =
+  | { readonly kind: 'global' }
+  | {
+    readonly kind: 'preset'
+    readonly presetId: string
+    /** Display name the preset published; null falls back to the id. */
+    readonly presetName: string | null
+    /** Whether a session naming no preset composes this one. */
+    readonly isDefault: boolean
+  }
+
+/** One mount of a package: a Loader entry, or one preset composition row. */
 export interface EntryRow {
-  /** Loader-tree entry id. */
-  readonly entryId: string
-  /** Exact module specifier the Loader entry imports. */
+  /** Loader-tree entry id, the id a composition file declares, or null when it declares none. */
+  readonly entryId: string | null
+  /** Exact module specifier the mount names. */
   readonly specifier: string
-  /** Effective Loader enablement, including disabled ancestor groups. */
-  readonly enabled: boolean
+  readonly plane: EntryPlane
+  /** Effective enablement, including disabled ancestor groups. */
+  readonly enabled: Enablement
+  /** The row's own `!!js` disabled expression, when it carries one. */
+  readonly condition: string | null
+  /** Root-fiber phase when the mount is live; null when it is not observed. */
   readonly fiberPhase: FiberPhase
 }
 
-/** One package, with every Loader entry that resolved to it. */
+/** One package, with every mount that resolved to it. */
 export interface PackageRow {
   /** Manifest name, or the specifier when no manifest could be located. */
   readonly name: string
@@ -38,6 +68,20 @@ export interface PackageRow {
   /** True when a harness package's version differs from the running harness version. */
   readonly versionDrift: boolean
   readonly entries: readonly EntryRow[]
+}
+
+/** One agent preset on the roster, whether or not any session has mounted it. */
+export interface PresetSummary {
+  readonly id: string
+  /** Display name the preset published; null falls back to the id. */
+  readonly name: string | null
+  readonly isDefault: boolean
+  /** Whether the deployment ships the preset or the user owns it. */
+  readonly trust: 'system' | 'user'
+  /** Why this preset's composition could not be read; null when it read fine. */
+  readonly broken: string | null
+  /** Composition rows this preset contributed to the package list. */
+  readonly rowCount: number
 }
 
 /** How confident the harness-version answer is. */
@@ -69,6 +113,11 @@ export interface VersionInventory {
   readonly harness: HarnessRow
   /** Packages sorted third-party first, then by name. */
   readonly packages: readonly PackageRow[]
+  /**
+   * The preset roster, in roster order. Empty when the deployment composes no
+   * roster — a real deployment shape, not a failure.
+   */
+  readonly presets: readonly PresetSummary[]
   /** Non-fatal collection problems, written for a human reader. */
   readonly warnings: readonly string[]
 }

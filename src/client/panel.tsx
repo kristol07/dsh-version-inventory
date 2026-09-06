@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
+  Enablement,
+  EntryPlane,
+  EntryRow,
   FiberPhase,
   HarnessVersionSource,
   PackageOrigin,
   PackageRow,
+  PresetSummary,
   VersionInventory,
 } from '../types.js'
 import { css } from './style.js'
@@ -24,6 +28,9 @@ type ViewState =
   | { readonly status: 'loading' }
   | { readonly status: 'error', readonly message: string }
   | { readonly status: 'ready', readonly inventory: VersionInventory }
+
+/** Which plane the list is restricted to. */
+type PlaneFilter = 'all' | 'global' | 'preset'
 
 const PHASE_TEXT: Record<Exclude<FiberPhase, null>, string> = {
   pending: '等待中',
@@ -46,17 +53,39 @@ const GROUP_TEXT: Record<PackageOrigin, string> = {
   builtin: 'Cordis 内置',
 }
 
-/** Human phase text; a package with no live root fiber says so rather than guessing. */
+const PLANE_FILTER_TEXT: Record<PlaneFilter, string> = {
+  all: '全部平面',
+  global: '仅全局平面',
+  preset: '仅 preset 平面',
+}
+
+/** Display name for one plane: the preset's own name, falling back to its id. */
+function planeText(plane: EntryPlane): string {
+  return plane.kind === 'global' ? '全局' : plane.presetName ?? plane.presetId
+}
+
+/** Human phase text; a mount with no live root fiber says so rather than guessing. */
 function phaseText(phase: FiberPhase): string {
   return phase === null ? '未观测' : PHASE_TEXT[phase]
 }
 
-/** The phase a package row shows: the worst state among its entries, so a failure is never hidden. */
-function summaryPhase(row: PackageRow): FiberPhase {
-  const phases = row.entries.map(entry => entry.fiberPhase)
+/** Human enablement text, keeping `conditional` distinct from plainly disabled. */
+function enablementText(row: EntryRow): string {
+  if (row.enabled === 'conditional') return '条件启用'
+  return row.enabled ? phaseText(row.fiberPhase) : '已停用'
+}
+
+/** The phase a package row shows: the worst state among its mounts, so a failure is never hidden. */
+function summaryPhase(entries: readonly EntryRow[]): FiberPhase {
+  const phases = entries.map(entry => entry.fiberPhase)
   if (phases.includes('failed')) return 'failed'
   if (phases.includes('active')) return 'active'
   return phases.find(phase => phase !== null) ?? null
+}
+
+/** A mount counts as live unless it is plainly disabled; `conditional` is undecided, not off. */
+function isOn(enabled: Enablement): boolean {
+  return enabled !== false
 }
 
 /** Local-time reading of the collection timestamp. */
@@ -66,25 +95,44 @@ function collectedText(iso: string): string {
 }
 
 /** One status dot plus its accessible name. */
-function Dot({ phase, enabled }: { phase: FiberPhase, enabled: boolean }): ReactNode {
-  const label = enabled ? phaseText(phase) : '已停用'
-  return <span className={'dvi-dot ' + (enabled ? phase ?? '' : 'off')} role="img" aria-label={label} title={label}/>
+function Dot({ phase, on, label }: { phase: FiberPhase, on: boolean, label: string }): ReactNode {
+  return <span className={'dvi-dot ' + (on ? phase ?? '' : 'off')} role="img" aria-label={label} title={label}/>
+}
+
+/** The planes a package is mounted on, as compact tags. */
+function PlaneTags({ entries }: { entries: readonly EntryRow[] }): ReactNode {
+  const global = entries.some(entry => entry.plane.kind === 'global')
+  const presets = [...new Set(entries
+    .filter(entry => entry.plane.kind === 'preset')
+    .map(entry => planeText(entry.plane)))]
+  return (
+    <>
+      {global && <span className="dvi-tag">全局</span>}
+      {presets.length > 2
+        ? <span className="dvi-tag">{presets.length} 个 preset</span>
+        : presets.map(name => <span key={name} className="dvi-tag preset">{name}</span>)}
+    </>
+  )
 }
 
 /** One expandable package row. */
 function PackageCard({ row }: { row: PackageRow }): ReactNode {
-  const drift = row.versionDrift
+  const live = row.entries.some(entry => isOn(entry.enabled))
   return (
     <details className="dvi-row">
       <summary>
-        <Dot phase={summaryPhase(row)} enabled={row.entries.some(entry => entry.enabled)}/>
+        <Dot
+          phase={summaryPhase(row.entries)}
+          on={live}
+          label={live ? phaseText(summaryPhase(row.entries)) : '已停用'}
+        />
         <span className="dvi-name mono">{row.name}</span>
+        <PlaneTags entries={row.entries}/>
         {row.isBundle && <span className="dvi-tag">bundle</span>}
         {row.hasClientHalf && <span className="dvi-tag">web</span>}
-        {row.entries.length > 1 && <span className="dvi-tag">{row.entries.length} 个条目</span>}
         <span
-          className={'dvi-ver' + (drift ? ' drift' : row.version === null ? ' none' : '')}
-          title={drift ? '版本与当前 Harness 版本不一致' : undefined}
+          className={'dvi-ver' + (row.versionDrift ? ' drift' : row.version === null ? ' none' : '')}
+          title={row.versionDrift ? '版本与当前 Harness 版本不一致' : undefined}
         >
           {row.version ?? '版本未知'}
         </span>
@@ -93,14 +141,24 @@ function PackageCard({ row }: { row: PackageRow }): ReactNode {
         {row.description !== null && <><dt>说明</dt><dd>{row.description}</dd></>}
         <dt>位置</dt>
         <dd className="mono">{row.path ?? '未解析到 package.json'}</dd>
-        <dt>条目</dt>
+        <dt>挂载</dt>
         <dd>
           <ul className="dvi-entries">
-            {row.entries.map(entry => (
-              <li key={entry.entryId}>
-                <Dot phase={entry.fiberPhase} enabled={entry.enabled}/>
-                <span className="mono">{entry.entryId}</span>
-                <span className="muted">{entry.enabled ? phaseText(entry.fiberPhase) : '已停用'}</span>
+            {row.entries.map((entry, index) => (
+              <li key={(entry.entryId ?? entry.specifier) + '@' + String(index)}>
+                <Dot
+                  phase={entry.fiberPhase}
+                  on={isOn(entry.enabled)}
+                  label={enablementText(entry)}
+                />
+                <span className="mono">{entry.entryId ?? '（未声明 id）'}</span>
+                <span className="dvi-tag">{planeText(entry.plane)}</span>
+                <span className="muted">{enablementText(entry)}</span>
+                {entry.condition !== null && (
+                  <span className="mono muted" title="该行自己的 !!js disabled 表达式">
+                    disabled: {entry.condition}
+                  </span>
+                )}
                 {entry.specifier !== row.name && <span className="mono muted">{entry.specifier}</span>}
               </li>
             ))}
@@ -127,9 +185,35 @@ function Group(
   )
 }
 
+/** The preset roster, so an empty preset plane is legible instead of just absent. */
+function PresetRoster({ presets }: { presets: readonly PresetSummary[] }): ReactNode {
+  if (presets.length === 0) return null
+  return (
+    <details className="dvi-group">
+      <summary>
+        Agent Preset 名册
+        <span className="muted">{presets.length} 个 preset</span>
+      </summary>
+      {presets.map(preset => (
+        <div key={preset.id} className="dvi-row dvi-preset">
+          <span className="dvi-name">
+            {preset.name ?? preset.id}
+            {preset.name !== null && <span className="mono muted"> {preset.id}</span>}
+          </span>
+          {preset.isDefault && <span className="dvi-tag">默认</span>}
+          <span className="dvi-tag">{preset.trust === 'system' ? '内置' : '用户'}</span>
+          {preset.broken === null
+            ? <span className="dvi-ver">{preset.rowCount} 行</span>
+            : <span className="dvi-ver drift" title={preset.broken}>读取失败</span>}
+        </div>
+      ))}
+    </details>
+  )
+}
+
 /**
  * The Plugins settings tab: the running harness version, and the version of
- * every package the Loader mounted.
+ * every package mounted on either harness plane.
  * @param props - the slot-assembled props, carrying the registrant's `load`.
  * @returns the tab body.
  */
@@ -137,6 +221,7 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
   const [state, setState] = useState<ViewState>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
   const [query, setQuery] = useState('')
+  const [plane, setPlane] = useState<PlaneFilter>('all')
 
   useEffect(() => {
     const abort = new AbortController()
@@ -155,14 +240,21 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
 
   const inventory = state.status === 'ready' ? state.inventory : undefined
   const filtered = useMemo(() => {
-    const packages = inventory?.packages ?? []
     const needle = query.trim().toLowerCase()
-    if (needle === '') return packages
-    return packages.filter(row =>
-      row.name.toLowerCase().includes(needle)
-      || (row.version ?? '').toLowerCase().includes(needle)
-      || row.entries.some(entry => entry.entryId.toLowerCase().includes(needle)))
-  }, [inventory, query])
+    return (inventory?.packages ?? [])
+      // Restricting the plane also drops the mounts from the other plane, so a
+      // package kept for one preset row does not still list its global entries.
+      .map(row => plane === 'all'
+        ? row
+        : { ...row, entries: row.entries.filter(entry => entry.plane.kind === plane) })
+      .filter(row => row.entries.length > 0)
+      .filter(row => needle === ''
+        || row.name.toLowerCase().includes(needle)
+        || (row.version ?? '').toLowerCase().includes(needle)
+        || row.entries.some(entry =>
+          (entry.entryId ?? '').toLowerCase().includes(needle)
+          || planeText(entry.plane).toLowerCase().includes(needle)))
+  }, [inventory, query, plane])
 
   const byOrigin = useCallback(
     (origin: PackageOrigin) => filtered.filter(row => row.origin === origin),
@@ -184,12 +276,13 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
     )
   }
 
-  const { harness, packages, warnings, collectedAt } = state.inventory
-  const entryCount = packages.reduce((total, row) => total + row.entries.length, 0)
+  const { harness, packages, presets, warnings, collectedAt } = state.inventory
+  const mountCount = packages.reduce((total, row) => total + row.entries.length, 0)
   const thirdParty = packages.filter(row => row.origin === 'third-party').length
   const unhealthy = packages.filter(row =>
-    row.entries.some(entry => entry.enabled && entry.fiberPhase !== 'active')).length
+    row.entries.some(entry => entry.enabled === true && entry.fiberPhase !== 'active')).length
   const drifted = packages.filter(row => row.versionDrift).length
+  const expanded = query.trim() !== '' || plane !== 'all'
 
   return (
     <div className="dvi">
@@ -216,7 +309,7 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
 
       <section className="dvi-metrics">
         <div className="dvi-metric"><b>{packages.length}</b><span>已加载的包</span></div>
-        <div className="dvi-metric"><b>{entryCount}</b><span>Loader 条目</span></div>
+        <div className="dvi-metric"><b>{mountCount}</b><span>挂载点</span></div>
         <div className="dvi-metric"><b>{thirdParty}</b><span>第三方插件</span></div>
         <div className={'dvi-metric' + (unhealthy > 0 ? ' bad' : '')}>
           <b>{unhealthy}</b><span>未处于运行中</span>
@@ -234,10 +327,19 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
         <input
           type="search"
           value={query}
-          placeholder="按包名、版本或条目 id 过滤"
+          placeholder="按包名、版本、挂载 id 或 preset 名过滤"
           aria-label="过滤版本清单"
           onChange={event => { setQuery(event.target.value) }}
         />
+        <select
+          value={plane}
+          aria-label="按平面过滤"
+          onChange={event => { setPlane(event.target.value as PlaneFilter) }}
+        >
+          {Object.entries(PLANE_FILTER_TEXT).map(([value, text]) => (
+            <option key={value} value={value}>{text}</option>
+          ))}
+        </select>
       </div>
 
       {filtered.length === 0
@@ -245,10 +347,12 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
         : (
           <>
             <Group origin="third-party" rows={byOrigin('third-party')} open/>
-            <Group origin="harness" rows={byOrigin('harness')} open={query.trim() !== ''}/>
-            <Group origin="builtin" rows={byOrigin('builtin')} open={query.trim() !== ''}/>
+            <Group origin="harness" rows={byOrigin('harness')} open={expanded}/>
+            <Group origin="builtin" rows={byOrigin('builtin')} open={expanded}/>
           </>
         )}
+
+      <PresetRoster presets={presets}/>
     </div>
   )
 }

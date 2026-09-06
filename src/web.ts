@@ -46,7 +46,7 @@ export function registerWeb(ctx: Context): void {
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: API_PATH,
-    handler: (req, res) => {
+    handler: async (req, res) => {
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
       res.setHeader('Cache-Control', 'no-store')
       res.setHeader('X-Content-Type-Options', 'nosniff')
@@ -63,7 +63,7 @@ export function registerWeb(ctx: Context): void {
         return
       }
       try {
-        send(200, collect(ctx))
+        send(200, await collect(ctx))
       } catch (error) {
         send(500, { error: error instanceof Error ? error.message : '采集版本清单失败。' })
       }
