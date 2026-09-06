@@ -7,6 +7,9 @@ export default defineConfig([{
   platform: 'node',
   target: 'node22',
   fixedExtension: false,
+  // Declarations come from tsc into lib/types, for both halves at once: a
+  // tsdown dts pass would also have to wrap the browser bundle's banner and
+  // footer into a .d.cts, which does not parse.
   dts: false,
   sourcemap: true,
   clean: false,

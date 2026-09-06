@@ -1,54 +1,63 @@
 {
   "name": "dsh-version-inventory",
   "version": "0.1.0",
-  "description": "Show the running DeepSeek Harness version and every loaded plugin's package version inside the dsh web UI.",
+  "description": "Show the running DeepSeek Harness version and every mounted plugin's package version inside the dsh web UI.",
   "license": "MIT",
+  "author": "kristol07 <8675075+kristol07@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kristol07/dsh-version-inventory.git"
+  },
+  "homepage": "https://github.com/kristol07/dsh-version-inventory#readme",
+  "bugs": {
+    "url": "https://github.com/kristol07/dsh-version-inventory/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "version",
+    "inventory",
+    "diagnostics"
+  ],
   "type": "module",
   "main": "./lib/index.js",
+  "types": "./lib/types/index.d.ts",
   "exports": {
-    ".": "./lib/index.js",
-    "./client": "./lib/client.js",
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
-    "lib",
+    "lib/index.js",
+    "lib/index.js.map",
+    "lib/client.js",
+    "lib/client.js.map",
+    "lib/types/**/*.d.ts",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit && tsdown",
+    "build": "tsc -p tsconfig.build.json && tsdown",
     "test": "npm run build && node --test test/*.test.mjs",
-    "prepack": "npm run build"
+    "verify:pack": "publint && attw --pack . --profile node16 --ignore-rules cjs-resolves-to-esm",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test && npm run verify:pack"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
-  "keywords": [
-    "deepseek-harness",
-    "dsh-plugin",
-    "version",
-    "diagnostics"
-  ],
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/cordis-plugin-loader": "1.0.3",
-    "@deepseek-ai/dsh-client-ui-settings": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-host-webserver": "0.1.2-rc.1"
-  },
-  "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/cordis-plugin-loader": "1.0.3",
-    "@deepseek-ai/dsh-agent-presets": "^0.1.2-rc.1",
-    "@deepseek-ai/dsh-client-ui-renderer": "^0.1.2-rc.1",
-    "@deepseek-ai/dsh-client-ui-settings": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-host-webserver": "0.1.2-rc.1",
-    "@types/node": "^22.20.0",
-    "@types/react": "~18.3.1",
-    "react": "18.3.1",
-    "tsdown": "^0.22.2",
-    "typescript": "^6.0.3"
+  "publishConfig": {
+    "access": "public"
   },
   "dsh": {
     "bundle": {
@@ -61,5 +70,22 @@
         "@deepseek-ai/dsh-client-ui-settings"
       ]
     }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.2",
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis-plugin-loader": "1.0.3",
+    "@deepseek-ai/dsh-agent-presets": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-modules": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-host-webserver": "0.1.2-rc.1",
+    "@types/node": "^22.20.0",
+    "@types/react": "~18.3.1",
+    "publint": "^0.3.24",
+    "react": "18.3.1",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3"
   }
 }

@@ -63,21 +63,53 @@ Harness 自身的版本来自 `process.argv[1]` 向上找到的 `@deepseek-ai/ds
 
 `webServer` 是**嵌套依赖**（`ctx.inject(['webServer'], …)`）而不是声明依赖，所以同一个包在 headless / ACP profile 里也能加载 —— 在那里它只是什么都不贡献，而不会让整棵树一直 pending。
 
+## 兼容性
+
+| 项 | 要求 |
+|---|---|
+| Node | `^22.19.0 \|\| >=24.0.0` |
+| DSH | `>= 0.1.2-rc.1`，需要 `web` profile（`webServer` + `settings.plugins.tab`） |
+| 运行时依赖 | **无** |
+
+**这个包没有 `dependencies`，也没有 `peerDependencies`，这是刻意的。** 它在运行时不 import 任何 harness 模块 —— 宿主半边只 import Node 内建模块，浏览器半边只 `require` 平台种子模块，其余能力全部通过 `ctx.*` 服务获得。所有 `@deepseek-ai/*` 都只在 `devDependencies` 里，只用于类型和测试。
+
+之所以不写成 peerDependencies：dsh 目前整个家族都在预发布版本上（`0.1.2-rc.1`、`0.1.3-alpha.1`），而 semver 的预发布匹配规则要求区间里存在同 `[major.minor.patch]` 的比较符，所以 `>=0.1.2-rc.1` **不匹配** `0.1.3-alpha.1`。任何写死的区间都会对正常安装报假警告。等 dsh 发出正式版本后可以再加回来。
+
+服务缺席时的降级都是明确的：没有 `webServer` 就不注册路由（headless / ACP profile 照样能加载这个包），没有 `agentPresets` 就 preset 平面为空，没有 `settings.plugins.tab` 声明就不贡献标签页。
+
 ## 构建与测试
 
 ```bash
 npm install && npm test
 ```
 
-`npm test` 先构建，再用 `node --test` 跑 `test/` 下的集成测试：真实的 Cordis Loader + 真实的 `package.json` 解析，preset 名册用一个只实现 `list()` / `compositionInventory()` 的替身。条目一律以 `disabled: true` 创建 —— 停用的条目永远不会被 import，所以测试只走解析和清单读取，不启动任何插件。
+`npm test` 先构建，再用 `node --test` 跑 `test/` 下的集成测试：
+
+- `inventory.test.mjs` —— 真实的 Cordis Loader + 真实的 `package.json` 解析，preset 名册用一个只实现 `list()` / `compositionInventory()` 的替身。条目一律以 `disabled: true` 创建：停用的条目永远不会被 import，所以测试只走解析和清单读取，不启动任何插件。同名不同版本的副本用 `test/fixtures/` 下两个真实的包目录构造。
+- `client-bundle.test.mjs` —— 用 npm 上真实的 `@deepseek-ai/dsh-client-modules` 扫描器跑一遍：断言本包进了 boot graph、`/plugins` 路由能取到构建产物、factory id 与包名一致，以及**bundle 只 `require` 平台种子模块**。最后这条是最有价值的一条 —— 浏览器插件最常见的坏法就是多出一个模块表答不上来的 `require`，那会在 materialize 时直接抛。
+
+`npm run verify:pack` 跑 `publint` 和 `@arethetypeswrong/cli`（`--profile node16`）。两处已知的例外：
+
+- publint 会报 `exports["./client"]` 是「CJS 却被当作 ESM」。`lib/client.js` 从来不经过 Node 解析 —— 它由页面的模块系统当作 classic script 执行。harness 自己对同名文件做了完全一样的豁免（`scripts/publint-all.ts` 里的 `isBrowserBundleFormatFalsePositive`）。
+- attw 的 `cjs-resolves-to-esm` 被显式忽略：这是个纯 ESM 包，CJS `require()` 不是目标。
 
 产物是 `lib/index.js`（ESM，宿主半边）和 `lib/client.js`（CJS，浏览器半边，带 `window.__ModuleLoader__.load({ id, factory })` 外壳）。`id` 必须与 `package.json` 的 `name` 一致，否则浏览器模块表取不到这个 factory。
 
 浏览器 bundle 只允许 `require()` 平台种子模块（`react`、`react/jsx-runtime`、`react-dom`、`@deepseek-ai/cordis`、`dsh-client-store`、`dsh-client-ui-slots`、`dsh-client-ui-primitives`）。其他一切都必须内联进 bundle —— 模块表答不上来的 `require` 在 materialize 时直接抛错。因此 `@deepseek-ai/dsh-client-ui-settings` / `-renderer` 只做 type-only 引入（拿 `SlotMap` 和 `Context.slots` 的声明合并），运行时不碰。
 
+类型由 `tsc` 统一发到 `lib/types/`，两半各有一份入口声明（`.` → `lib/types/index.d.ts`，`./client` → `lib/types/client/index.d.ts`）。浏览器 bundle 不能用 tsdown 的 dts —— 它会把 `__ModuleLoader__` 的 banner/footer 一起裹进 `.d.cts`，那是解析不了的。
+
 ## 装载
 
-### 方式一：profile patch（当前采用，无需安装）
+### 方式零：从 npm 安装（发布后）
+
+```bash
+dsh plugin --profile web add dsh-version-inventory
+```
+
+`package.json` 声明了 `dsh.bundle.patch`，所以 `dsh plugin` 装完会自动把它加进 `dsh.profile.bundles` 层叠，由本包的 `cordis.patch.yml` 用裸包名插入条目。
+
+### 方式一：profile patch（本地开发，无需安装）
 
 `~/.dsh/profiles/web/cordis.patch.yml`：
 
@@ -89,15 +121,15 @@ npm install && npm test
 
 相对路径会以该 patch 文件所在目录为基准锚定成 `file://` URL；client-modules 扫描再从这个文件向上找到本目录的 `package.json`，读到 `dsh.client` 和 `exports["./client"]`。web profile 是 `patchReload: live`，改 patch 不用重启。
 
-### 方式二：作为 bundle 安装
+### 方式二：从本地目录作为 bundle 安装
 
 ```bash
 dsh plugin --profile web add link:C:/Users/joell/.dsh/plugins/dsh-version-inventory
 ```
 
-`package.json` 里声明了 `dsh.bundle.patch`，所以安装后它会自动进入 `dsh.profile.bundles` 层叠，由本目录的 `cordis.patch.yml` 用裸包名插入条目。
+`link:` 建的是符号链接，改完代码 `npm run build` 就能生效，不用重装。
 
-两种方式**不要同时用**，否则会插入两条重复条目。
+三种方式**不要同时用**，否则会插入重复条目。
 
 ## 已知限制
 

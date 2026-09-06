@@ -6,7 +6,7 @@
  * still renders legibly if a token is ever renamed. Class names are prefixed
  * `dvi-` because this sheet is global — the plugin owns that prefix.
  */
-export const css = `
+export const css: string = `
 .dvi{font:13px/1.55 var(--dsw-font-family,-apple-system,'Segoe UI','PingFang SC',sans-serif);color:var(--dsw-alias-label-primary,#1b1c1e);display:flex;flex-direction:column;gap:14px;padding:2px 0 18px}
 .dvi *{box-sizing:border-box}
 .dvi button{font:inherit;cursor:pointer;color:inherit;background:var(--dsw-alias-bg-layer-1,#fff);border:0.5px solid var(--dsw-alias-border-l3,#0000001f);border-radius:7px;padding:5px 11px}
