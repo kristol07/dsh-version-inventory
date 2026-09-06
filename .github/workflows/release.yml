@@ -1,0 +1,71 @@
+# Publish to npm when a version tag is pushed.
+#
+# The tag is the confirmation gesture: nothing publishes on a merge to main.
+# `npm version <x.y.z>` writes the manifest, commits, and tags in one step, so
+# the tag and the manifest cannot disagree — and the job re-checks that they
+# agree before it publishes anything.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Add `environment: npm-publish` here if you want a required-reviewer gate
+    # on top of the tag; the tag alone is the confirmation by default.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      # The tag names the version being released; the manifest is what npm
+      # actually publishes. A mismatch means one of the two was hand-edited,
+      # and publishing either would be wrong.
+      - name: Check the tag matches the manifest
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::tag v$tag does not match package.json version $manifest"
+            exit 1
+          fi
+          echo "releasing $manifest"
+
+      # Refuse to republish a version that already exists, rather than letting
+      # npm fail halfway through the job.
+      - name: Check the version is unpublished
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "dsh-version-inventory@$version" version >/dev/null 2>&1; then
+            echo "::error::dsh-version-inventory@$version is already published"
+            exit 1
+          fi
+
+      - run: npm run release:check
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "npm: https://www.npmjs.com/package/dsh-version-inventory/v/${GITHUB_REF_NAME#v}
+
+          See CHANGELOG.md for what changed."

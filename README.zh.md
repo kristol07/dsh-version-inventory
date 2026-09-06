@@ -175,6 +175,28 @@ dsh plugin --profile web add link:/path/to/dsh-version-inventory
 - **config 摘要只到顶层**：嵌套结构只显示形状，要看完整值请查 `cordis.patch.yml` 或 preset 的 composition 文件。
 - **路由只对本地同源开放**：清单会暴露宿主文件路径和 config 键名，所以 `/dsh-version-inventory/api/list` 要求 loopback host、同源 Origin，以及 `X-DSH-Version-Inventory: 1` 头。
 
+## 发布
+
+推一个版本 tag 就会发布，合并到 main 不会发布任何东西。一次性配置：在 npm 上建一个
+**automation** 类型的 access token，作为仓库 secret `NPM_TOKEN` 加进去（Settings →
+Secrets and variables → Actions）。automation token 是能在 CI 里绕过 2FA 的那种。
+
+之后每次发布就是：
+
+```bash
+npm run release:check
+npm version patch          # 或 minor / major / 明确的 x.y.z
+git push --follow-tags
+```
+
+`npm version` 一步完成改清单、提交、打 tag，所以 tag 和清单不可能对不上。
+`.github/workflows/release.yml` 仍然会再核对一遍，拒绝已经发布过的版本，跑测试和打包检查，
+带 provenance 发布，并为该 tag 建一个 GitHub release。
+
+打 tag 前记得更新 `CHANGELOG.md` —— release notes 指向它。如果你的 npm 账号不接受
+provenance，把发布那步的 `--provenance` 去掉即可。想在 tag 之外再加一道人工审批，就给
+这个 job 加上 `environment: npm-publish` 并配置该环境的 reviewer。
+
 ## 许可
 
 MIT © Joel Liu

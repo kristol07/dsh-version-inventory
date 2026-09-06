@@ -19,6 +19,15 @@ import { css } from './style.js'
 export interface VersionInventoryInjected {
   /** Read one current inventory snapshot. */
   load: (signal?: AbortSignal) => Promise<VersionInventory>
+  /**
+   * The harness's active locale id, read at call time.
+   *
+   * `t` covers the copy, but a timestamp is formatted by Intl, and Intl's
+   * default is the BROWSER's language — which is not the setting the user
+   * changed. Reading DSH's own active locale keeps the whole tab on one
+   * language instead of two.
+   */
+  activeLocale: () => string
 }
 
 /** Full component props assembled by the Settings slot renderer. */
@@ -94,10 +103,22 @@ function isOn(enabled: Enablement): boolean {
   return enabled !== false
 }
 
-/** Local-time reading of the collection timestamp. */
-function collectedText(iso: string): string {
+/**
+ * Local-time reading of the collection timestamp, formatted for the harness's
+ * active locale rather than the browser's.
+ * @param iso - the collection timestamp.
+ * @param locale - the harness's active locale id.
+ * @returns the local time, or the raw value when it does not parse.
+ */
+function collectedText(iso: string, locale: string): string {
   const parsed = new Date(iso)
-  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleTimeString()
+  if (Number.isNaN(parsed.getTime())) return iso
+  try {
+    return parsed.toLocaleTimeString(locale)
+  } catch {
+    // An unknown tag from a language pack must not blank the header.
+    return parsed.toLocaleTimeString()
+  }
 }
 
 /** Render one structured collection warning in the reader's language. */
@@ -267,7 +288,7 @@ function PresetRoster({ presets, t }: { presets: readonly PresetSummary[], t: Tr
  * @param props - the slot-assembled props, carrying the registrant's `load` and `t`.
  * @returns the tab body.
  */
-export function VersionInventoryTab({ load, t }: VersionInventoryTabProps): ReactNode {
+export function VersionInventoryTab({ load, activeLocale, t }: VersionInventoryTabProps): ReactNode {
   const [state, setState] = useState<ViewState>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
   const [query, setQuery] = useState('')
@@ -356,7 +377,7 @@ export function VersionInventoryTab({ load, t }: VersionInventoryTabProps): Reac
         </div>
         <div className="dvi-headside">
           <button type="button" onClick={refresh}>{t('refresh')}</button>
-          <span className="muted">{t('collectedAt', { time: collectedText(collectedAt) })}</span>
+          <span className="muted">{t('collectedAt', { time: collectedText(collectedAt, activeLocale()) })}</span>
         </div>
       </section>
 

@@ -175,6 +175,32 @@ Do **not** combine these routes — each inserts its own row.
 - **The config summary stops at the top level.** Nested structures show their shape; read `cordis.patch.yml` or the preset's composition file for full values.
 - **The route is local and same-origin only.** The inventory names host filesystem paths and config keys, so `/dsh-version-inventory/api/list` requires a loopback host, a same-origin `Origin`, and the `X-DSH-Version-Inventory: 1` header.
 
+## Releasing
+
+A pushed version tag publishes; nothing publishes on a merge. One-time setup:
+create an **automation** access token on npm and add it as the repository
+secret `NPM_TOKEN` (Settings → Secrets and variables → Actions). An automation
+token is the one that bypasses 2FA in CI.
+
+Then every release is:
+
+```bash
+npm run release:check
+npm version patch          # or minor / major / an explicit x.y.z
+git push --follow-tags
+```
+
+`npm version` writes the manifest, commits, and tags in one step, so the tag
+and the manifest cannot disagree. `.github/workflows/release.yml` then checks
+that they agree anyway, refuses a version already on the registry, runs the
+tests and the packaging checks, publishes with provenance, and opens a GitHub
+release for the tag.
+
+Update `CHANGELOG.md` before tagging — the release notes point at it. If your
+npm account rejects provenance, drop `--provenance` from the publish step. To
+require a human approval on top of the tag, add `environment: npm-publish` to
+the job and configure that environment's reviewers.
+
 ## License
 
 MIT © Joel Liu

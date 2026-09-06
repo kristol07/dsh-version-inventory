@@ -47,7 +47,12 @@ export function apply(ctx: Context): void {
   // thunk is re-resolved on a locale change, and the ledger bump re-renders
   // the tab strip.
   const t = ctx.locale.bind(NS)
-  const injected = (): VersionInventoryInjected => ({ load: fetchInventory })
+  const injected = (): VersionInventoryInjected => ({
+    load: fetchInventory,
+    // A function, not a value: the face is built once per registration while
+    // the active locale changes underneath it.
+    activeLocale: () => ctx.locale.getSnapshot().active,
+  })
   ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
     name: 'settings.plugins.tab',
     id: 'versions',
