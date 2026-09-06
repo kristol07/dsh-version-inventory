@@ -29,7 +29,13 @@ const HOST_HALF = pathToFileURL(join(PACKAGE_ROOT, 'lib/index.js')).href
  * when the factory materializes. Asserting the exact set — not a subset — is
  * what catches a new import that tsdown left external.
  */
-const ALLOWED_REQUIRES = ['react', 'react/jsx-runtime']
+const ALLOWED_REQUIRES = [
+  'react',
+  'react/jsx-runtime',
+  // The panel's copy controls write through the harness's own clipboard
+  // helper rather than reimplementing the insecure-context fallback.
+  '@deepseek-ai/dsh-client-ui-primitives',
+]
 
 let context
 let route

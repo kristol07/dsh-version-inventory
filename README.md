@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 Shows the **running DeepSeek Harness version** and **the package version of every mounted plugin** inside the dsh web UI.
 
-Settings → Plugins → **Versions**, beside the shipped plugin list. That list shows module names, enablement, and fiber state but no versions; this tab adds the version column, plus the install path, Node version, `DSH_HOME`, a duplicate-copy alarm, and a warning when a harness package drifts from the running harness version.
+Settings → Plugins → **Versions**, beside the shipped plugin list. That list shows module names, enablement, and fiber state but no versions; this tab adds the version column, plus the install path, Node version, `DSH_HOME`, a duplicate-copy alarm, and a warning when a harness package drifts from the running harness version. Each row copies as `name@version`, and the header copies a share-safe report of the whole install. The same reading is registered as the `dsh_version_inventory` tool, so an agent in a session can read it directly.
 
 The UI follows the client's language setting — English and Simplified Chinese ship in the box.
 
@@ -52,37 +52,122 @@ The harness's own version comes from the `package.json` above `process.argv[1]` 
 
 `cordis:` builtins have no package and no version; they are reported as Cordis builtins instead of being given an invented one.
 
+## Copying versions
+
+Two controls, because two questions come up: *what version of this one plugin am
+I running*, and *what does this whole install look like*.
+
+- Each package row copies `name@version` — one token, as pasteable into a
+  terminal or a search box as into a message.
+- The header copies a short environment report: the harness version and where
+  that answer came from, Node and platform, the collection time in UTC, every
+  third-party plugin with its version and planes, the harness packages folded to
+  one line when they all match, the builtin count, and any collection warning.
+
+The report is always the whole inventory, never the filtered view. The search
+box and the plane selector shape what one person is reading; a report that
+inherited them would under-report an install without saying so.
+
+**It carries no filesystem path, no `DSH_HOME`, no user-authored preset name,
+and no config value.** That is the format, not a toggle. The read route is
+fenced to same-origin loopback precisely because the snapshot names host paths
+and config keys — and a copy control exists to move text off the machine, which
+inverts that fence. So the report is built from the half of the snapshot that is
+safe to hand to someone else. The one exception is a duplicate group, where the
+copies mean nothing without something to tell them apart: there the longest
+common directory prefix is dropped and only the differing segments survive
+(`…/node_modules/dup` against `…/plugins/a/node_modules/dup`).
+
+Every hedge in the panel survives the copy. An inferred harness version still
+says `(inferred from loaded packages)`, a package with no manifest version reads
+`name@unknown`, and the collection warnings are carried whole — a qualifier
+dropped in the copy is what turns this panel's inference into the reader's fact.
+
+The text is plain, one fact to a `- ` line: it reads as written in a chat window
+or a file, and keeps its line breaks when something does render it as Markdown.
+It follows the panel's language, and writes through the harness's own
+`writeClipboard`, which falls back to `execCommand` where an insecure context
+has no async Clipboard API and reports a refusal rather than throwing. Like
+every dsh copy control, a refused write is silent: the label just does not
+change.
+
+## Reading it from a session
+
+The same reading is registered as a model-facing tool, `dsh_version_inventory`,
+so the agent in a dsh session can answer a version question itself instead of
+asking its user to open a settings tab and paste a report back. That is the
+reader that needs it most: "which version of this plugin is running" is a
+question that comes up in the middle of debugging, when the answer is a
+prerequisite for the next step rather than the point of the conversation.
+
+One optional parameter, `package`, takes a case-insensitive substring of a
+package name. Omitted, the tool reports the whole install; given, it reports the
+matching packages and nothing else, which is the difference between twenty-five
+lines and five for the common question.
+
+**Its result is the same projection the copy control produces**, and that is the
+point rather than an economy. A tool result is not a private reading: it enters
+the transcript, goes to the model provider on every following turn, and may be
+exported later — the same exposure as a pasted report, and the opposite of the
+one the read route is fenced for. Sharing the projection means the model reader
+cannot quietly become wider than the human one. It also drops each package's
+`description`, which matters more here than in the panel: a description is text
+a third-party package author wrote, and this is the one path that feeds it to a
+model.
+
+The canonical value is structured and the prose lives in the renderer, which is
+what the tool authoring contract asks for: a PTC caller reads fields rather than
+parsing sentences, while a native call sees the same report a person would copy.
+Warnings stay structured there too — the same "facts cross the boundary, the
+reader writes the sentence" rule the host half already follows.
+
+The rendered text is English regardless of the panel's language. The harness's
+locale is a browser-side preference and the host has no locale service, so the
+tool renders through `en` — the dictionary's key source of truth and the
+harness's own fallback locale — rather than guessing at a reader whose language
+nobody stated.
+
+Nothing in the tool path imports the tools package at runtime. `ToolDefinition`
+is a type, `ctx.tools.register` takes a plain object, and `defineTool` is only a
+typed builder over the same shape — so `@deepseek-ai/dsh-tools` stays a
+`devDependency` and this package keeps its property that every capability
+arrives through `ctx`. The cost is that a raw definition owns its own argument
+validation, which for one optional string is cheaper than the dependency would
+be.
+
 ## Layout
 
 | File | Role |
 |---|---|
-| `src/index.ts` | Host plugin entry; `inject: ['loader']`, with the read route registered under a nested `webServer` injection |
+| `src/index.ts` | Host plugin entry; `inject: ['loader']`, with the route and the tool each registered under a nested injection |
 | `src/inventory.ts` | Collection: mounts on both planes → package rows |
 | `src/web.ts` | `GET /dsh-version-inventory/api/list`, fenced to same-origin loopback with a custom header |
 | `src/client/index.tsx` | Contributes the tab through `ctx.slots.inject('settings.plugins.tab', …)` and registers the dictionaries |
 | `src/client/panel.tsx` | The panel itself |
-| `src/client/locales.ts` | `en` and `zh` dictionaries; `en` is the key source of truth |
+| `src/report.ts` | The share-safe projection, and its rendering — read by the panel, the copy control, and the tool |
+| `src/tool.ts` | The `dsh_version_inventory` tool: schema, canonical value, and English rendering |
+| `src/locales.ts` | `en` and `zh` dictionaries; `en` is the key source of truth |
 | `src/types.ts` | Wire types shared by both halves (the browser side imports them type-only) |
 
 The host half holds no state: every request re-reads. The Loader already maintains `Entry.fiber` and `Fiber.state`, and the preset roster deliberately re-reads its roots on every call, so a second cache would only add another lifecycle truth to keep synchronized.
 
-`webServer` is a **nested** dependency (`ctx.inject(['webServer'], …)`) rather than a declared one, so the same package still loads in a headless or ACP profile — there it simply contributes nothing instead of holding the tree pending forever.
+`webServer` and `tools` are both **nested** dependencies (`ctx.inject(['webServer'], …)`) rather than declared ones, so the same package loads wherever the harness runs: a headless or ACP profile gets the tool and no panel, a deployment that composes no agents gets the panel and no tool, and neither holds the tree pending forever waiting for a service that is never coming.
 
-Warnings cross the wire as **structured facts**, not sentences: the host cannot know the reader's language, so it reports `{ kind: 'duplicate-packages', names: [...] }` and the panel writes the sentence. That also makes the route's JSON useful to anything else that reads it.
+Warnings cross the wire as **structured facts**, not sentences: the host cannot know the reader's language, so it reports `{ kind: 'duplicate-packages', names: [...] }` and the panel writes the sentence. The route's failures follow the same rule — `{ error: { kind: 'forbidden' } }`, not a refusal written in whichever language the author happened to be typing in — and an `error` whose `kind` the bundle does not recognize degrades to its raw text rather than to an invented sentence. That also makes the route's JSON useful to anything else that reads it.
 
 ## Compatibility
 
 | | |
 |---|---|
 | Node | `^22.19.0 \|\| >=24.0.0` |
-| DSH | `>= 0.1.2-rc.1`, on a `web` profile (needs `webServer` and `settings.plugins.tab`) |
+| DSH | `>= 0.1.2-rc.1`. The panel needs a `web` profile (`webServer` and `settings.plugins.tab`); the tool needs `tools`. Either alone is a working install |
 | Runtime dependencies | **none** |
 
 **This package declares no `dependencies` and no `peerDependencies`, deliberately.** It imports no harness module at runtime — the host half imports Node builtins only, the browser half requires platform seed modules only, and every capability arrives through `ctx`. Every `@deepseek-ai/*` package is a `devDependency`, used for types and tests.
 
 Peer ranges are omitted because they would misfire today: the dsh family ships prereleases (`0.1.2-rc.1`, `0.1.3-alpha.1`), and semver only admits a prerelease when the range holds a comparator with the same `[major.minor.patch]`, so `>=0.1.2-rc.1` does **not** match `0.1.3-alpha.1`. Any pinned range would warn on a healthy install. They can come back once dsh ships stable versions.
 
-Every missing service degrades explicitly: no `webServer` means no route (a headless or ACP profile still loads the package), no `agentPresets` means an empty preset plane, and no `settings.plugins.tab` declaration means no tab.
+Every missing service degrades explicitly: no `webServer` means no route (a headless or ACP profile still loads the package and still registers the tool), no `tools` means no tool, no `agentPresets` means an empty preset plane, and no `settings.plugins.tab` declaration means no tab.
 
 ## Build and test
 
@@ -95,6 +180,9 @@ npm install && npm test
 - `inventory.test.mjs` — a real Cordis Loader and real `package.json` resolution, with a roster stub implementing only `list()` and `compositionInventory()`. Entries are created `disabled: true`: a disabled entry is never imported, so the tests exercise resolution and manifest reading without starting any plugin. Two real package directories under `test/fixtures/` supply the same-name, different-version duplicate case.
 - `client-bundle.test.mjs` — runs the real `@deepseek-ai/dsh-client-modules` scanner from npm: the package joins the boot graph, the `/plugins` route serves the built bundle, the factory id matches the module-table key, and **the bundle requires nothing beyond the platform seeds**. That last one is the most valuable check here — the commonest way a browser plugin breaks is one extra `require` the module table cannot answer, which throws when the factory materializes.
 - `locales.test.mjs` — every locale ships the same keys and the same `{placeholder}` set. TypeScript already enforces key parity; a dropped placeholder is what it cannot see.
+- `web.test.mjs` — the same-origin loopback fence, and the shape of what the route answers when it refuses. The last assertion is the regression guard: the route may not write copy of its own, because a sentence written in the host process is a sentence written in the wrong language for some reader.
+- `report.test.mjs` — the projection and the text it renders to, through the real `en` dictionary. The assertions that matter are about what may **not** appear: a change that starts carrying a path, a `DSH_HOME`, a config value, a package description, or a user-authored preset name has to fail here rather than in someone's pasted message or a model transcript.
+- `tool.test.mjs` — the tool definition against the registry's own `assertSupportedJsonSchema` and `validateJsonSchemaValue`. Registering a raw definition rather than a `defineTool` one moves both checks off the builder, and without them a schema that does not describe its value fails at mount time or on the first call, in a session. It also pins the wiring: `inject` names only the loader, and both surfaces are nested.
 
 `npm run verify:pack` runs `publint` and `@arethetypeswrong/cli` (`--profile node16`). Two known exceptions:
 
@@ -142,7 +230,7 @@ That allowance is **permission to execute this package's code on your machine at
 
 ```bash
 npm pack
-dsh plugin --profile web add ./dsh-version-inventory-0.1.0.tgz
+dsh plugin --profile web add ./dsh-version-inventory-0.2.0.tgz
 ```
 
 ### From a local checkout, for development
@@ -167,6 +255,7 @@ Do **not** combine these routes — each inserts its own row.
 
 ## Known limitations
 
+- **The report is a fingerprint, not a manifest.** It names the packages the harness mounted and their versions. It is not a lockfile and cannot rebuild an environment: transitive dependencies, patch-layer contents, and which preset a session composed are all outside it. Two matching reports mean the mounted versions match, not that the environments do.
 - **One snapshot per mount.** The panel reads once when it mounts and then on the Refresh button; it does not subscribe to Loader changes.
 - **Read-only.** No enable/disable controls.
 - **Versions come from the `package.json` on disk.** A package that was hot-reloaded without its manifest changing still shows the on-disk version.

@@ -26,6 +26,7 @@ export const css: string = `
 .dvi-facts dt{color:var(--dsw-alias-label-tertiary,#00000073)}
 .dvi-facts dd{margin:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary,#000000a6)}
 .dvi-headside{display:flex;flex-direction:column;align-items:flex-end;gap:7px;font-size:11px}
+.dvi-headbuttons{display:flex;gap:7px;align-items:center}
 
 .dvi-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 .dvi-metric{border:0.5px solid var(--dsw-alias-border-l3,#0000001f);border-radius:10px;padding:10px 12px;background:var(--dsw-alias-bg-layer-1,#fff)}
@@ -58,6 +59,9 @@ export const css: string = `
 .dvi-ver{margin-left:auto;font-variant-numeric:tabular-nums;font-size:12px;padding:1px 8px;border-radius:5px;background:var(--dsw-alias-bg-layer-3,#0000000a);color:var(--dsw-alias-label-secondary,#000000a6);white-space:nowrap}
 .dvi-ver.drift{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#d98324) 14%,transparent);color:var(--dsw-alias-state-warn-label,#8a5a12)}
 .dvi-ver.none{color:var(--dsw-alias-label-tertiary,#00000073)}
+/* Quiet until wanted, but never hidden: a control that appears only on hover is unreachable on touch. */
+.dvi button.dvi-copy{flex:none;padding:1px 8px;font-size:11px;border-radius:5px;background:transparent;border-color:transparent;color:var(--dsw-alias-label-tertiary,#00000073)}
+.dvi button.dvi-copy:hover{background:var(--dsw-alias-bg-layer-3,#0000000a);border-color:var(--dsw-alias-border-l3,#0000001f);color:var(--dsw-alias-label-secondary,#000000a6)}
 
 .dvi-dot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--dsw-alias-label-tertiary,#00000073)}
 .dvi-dot.active{background:var(--dsw-alias-state-success-primary,#22c55e)}

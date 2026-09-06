@@ -26,7 +26,10 @@ export default defineConfig([{
   // The browser module table answers exactly the platform seed words; every
   // other import must be inlined or the factory throws at materialization.
   deps: {
-    neverBundle: ['react', 'react/jsx-runtime', 'react-dom', '@deepseek-ai/cordis'],
+    neverBundle: [
+      'react', 'react/jsx-runtime', 'react-dom',
+      '@deepseek-ai/cordis', '@deepseek-ai/dsh-client-ui-primitives',
+    ],
     alwaysBundle: [/^\.\//, /^\.\.\//],
   },
   outputOptions: {

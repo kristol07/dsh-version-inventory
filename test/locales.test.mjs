@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { en, zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/locales.ts'
 
 /** Every locale this package ships, by tag. */
 const DICTS = { en, zh }

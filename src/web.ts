@@ -8,6 +8,7 @@ import type { IncomingMessage } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { collect } from './inventory.js'
+import type { RouteError } from './types.js'
 
 /** Exact route the browser panel reads. */
 export const API_PATH = '/dsh-version-inventory/api/list'
@@ -54,18 +55,22 @@ export function registerWeb(ctx: Context): void {
         res.statusCode = status
         res.end(JSON.stringify(value))
       }
+      // Failures cross the wire as facts, exactly like the collection warnings
+      // in the success body: this process cannot know which language the person
+      // reading the panel chose, so it never writes the sentence itself.
+      const fail = (status: number, error: RouteError): void => { send(status, { error }) }
       if (!trustedRequest(req)) {
-        send(403, { error: '版本清单只对同源的本地连接开放。' })
+        fail(403, { kind: 'forbidden' })
         return
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') {
-        send(405, { error: 'GET required.' })
+        fail(405, { kind: 'method' })
         return
       }
       try {
         send(200, await collect(ctx))
       } catch (error) {
-        send(500, { error: error instanceof Error ? error.message : '采集版本清单失败。' })
+        fail(500, { kind: 'collect', reason: error instanceof Error ? error.message : String(error) })
       }
     },
   }), 'version-inventory: read route')

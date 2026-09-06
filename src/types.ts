@@ -140,6 +140,22 @@ export type InventoryWarning =
   /** The preset compositions could not be read at all. */
   | { readonly kind: 'preset-inventory-unreadable', readonly reason: string }
 
+/**
+ * Why a read of the route failed, as a fact rather than a sentence.
+ *
+ * Same reason the warnings above are structured: the host does not know the
+ * reader's language, so it reports what happened and the panel writes the
+ * sentence. A `reason` is an error message from elsewhere and is interpolated
+ * verbatim.
+ */
+export type RouteError =
+  /** The request did not clear the same-origin loopback fence. */
+  | { readonly kind: 'forbidden' }
+  /** The route answers GET (and HEAD) only. */
+  | { readonly kind: 'method' }
+  /** Collection itself threw. */
+  | { readonly kind: 'collect', readonly reason: string }
+
 /** How confident the harness-version answer is. */
 export type HarnessVersionSource =
   /** Read from the running `@deepseek-ai/dsh` install located from argv. */

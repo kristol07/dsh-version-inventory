@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   Enablement,
@@ -12,7 +13,9 @@ import type {
   PresetSummary,
   VersionInventory,
 } from '../types.js'
-import type { VersionInventoryLocaleKey } from './locales.js'
+import { asReadFailure, type ReadFailure } from './api.js'
+import type { VersionInventoryLocaleKey } from '../locales.js'
+import { buildReport, packageLine, warningText } from '../report.js'
 import { css } from './style.js'
 
 /** Registration-side face: the tab reads the host through its registrant, not through fetch itself. */
@@ -41,7 +44,7 @@ type Translate = VersionInventoryTabProps['t']
 
 type ViewState =
   | { readonly status: 'loading' }
-  | { readonly status: 'error', readonly message: string }
+  | { readonly status: 'error', readonly failure: ReadFailure }
   | { readonly status: 'ready', readonly inventory: VersionInventory }
 
 /** Which plane the list is restricted to. */
@@ -121,25 +124,80 @@ function collectedText(iso: string, locale: string): string {
   }
 }
 
-/** Render one structured collection warning in the reader's language. */
-function warningText(warning: InventoryWarning, t: Translate): string {
-  switch (warning.kind) {
-    case 'harness-unlocated':
-      return t('warnHarnessUnlocated', { package: warning.package, scope: warning.scope })
-    case 'unresolved-mounts':
-      return t('warnUnresolved', { count: warning.count })
-    case 'duplicate-packages':
-      return t('warnDuplicates', { names: warning.names.join(', ') })
-    case 'preset-roots-unreadable':
-      return t('warnPresetRoots', { reason: warning.reason })
-    case 'preset-inventory-unreadable':
-      return t('warnPresetInventory', { reason: warning.reason })
+/**
+ * Render one read failure in the reader's language.
+ *
+ * The route reports why it refused as a fact, for the same reason it reports
+ * collection warnings that way: it cannot know which language the person at the
+ * panel chose. This is where those facts become sentences.
+ * @param failure - the structured reason.
+ * @param t - the reader's translate seat.
+ * @returns the sentence.
+ */
+function failureText(failure: ReadFailure, t: Translate): string {
+  switch (failure.kind) {
+    case 'forbidden':
+      return t('errorForbidden')
+    case 'method':
+      return t('errorMethod')
+    case 'collect':
+      return t('errorCollect', { reason: failure.reason })
+    case 'transport':
+      return t('errorTransport', { reason: failure.reason })
   }
 }
 
 /** A stable key for one warning, so the list survives a refresh without remounting. */
 function warningKey(warning: InventoryWarning): string {
   return warning.kind
+}
+
+/** How long a copy control says it succeeded — the interval the harness's own copy controls use. */
+const COPIED_FEEDBACK_MS = 1000
+
+/**
+ * One copy control.
+ *
+ * `writeClipboard` is the harness's own helper: the async Clipboard API where
+ * the page has it, a hidden-textarea `execCommand` where an insecure context
+ * does not, and `false` rather than a throw when the host refuses. Every dsh
+ * copy control stays silent on a refusal instead of claiming success, and so
+ * does this one — the label just does not change.
+ */
+function CopyButton(
+  { text, label, ariaLabel, title, className, t }: {
+    text: string
+    label: string
+    ariaLabel?: string
+    title?: string
+    className?: string
+    t: Translate
+  },
+): ReactNode {
+  const [copied, setCopied] = useState(false)
+  const onCopy = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    // The row control sits inside a <summary>, where a click's default action
+    // is to toggle the disclosure. Cancelling it is what keeps copying one
+    // row's version from also opening or closing that row.
+    event.preventDefault()
+    if (copied) return
+    void writeClipboard(text).then((ok) => {
+      if (!ok) return
+      setCopied(true)
+      window.setTimeout(() => { setCopied(false) }, COPIED_FEEDBACK_MS)
+    })
+  }, [copied, text])
+  return (
+    <button
+      type="button"
+      className={className}
+      title={title}
+      aria-label={ariaLabel ?? label}
+      onClick={onCopy}
+    >
+      {copied ? t('copied') : label}
+    </button>
+  )
 }
 
 /** One status dot plus its accessible name. */
@@ -206,6 +264,13 @@ function PackageCard({ row, t }: { row: PackageRow, t: Translate }): ReactNode {
         >
           {row.version ?? t('versionUnknown')}
         </span>
+        <CopyButton
+          className="dvi-copy"
+          text={packageLine(row)}
+          label={t('copyRow')}
+          ariaLabel={t('copyRowLabel', { name: row.name })}
+          t={t}
+        />
       </summary>
       <dl className="dvi-detail">
         {row.description !== null && <><dt>{t('detailDescription')}</dt><dd>{row.description}</dd></>}
@@ -301,7 +366,7 @@ export function VersionInventoryTab({ load, activeLocale, t }: VersionInventoryT
       inventory => { if (!abort.signal.aborted) setState({ status: 'ready', inventory }) },
       (error: unknown) => {
         if (abort.signal.aborted) return
-        setState({ status: 'error', message: error instanceof Error ? error.message : '' })
+        setState({ status: 'error', failure: asReadFailure(error) })
       },
     )
     return () => { abort.abort() }
@@ -327,6 +392,14 @@ export function VersionInventoryTab({ load, activeLocale, t }: VersionInventoryT
           || planeText(entry.plane, t).toLowerCase().includes(needle)))
   }, [inventory, query, plane, t])
 
+  // Built from the whole snapshot, not from `filtered`: the search box and the
+  // plane selector shape what one person is reading, and a report that
+  // inherited them would under-report an environment without saying so.
+  const report = useMemo(
+    () => (inventory === undefined ? '' : buildReport(inventory, t)),
+    [inventory, t],
+  )
+
   const byOrigin = useCallback(
     (origin: PackageOrigin) => filtered.filter(row => row.origin === origin),
     [filtered],
@@ -340,7 +413,7 @@ export function VersionInventoryTab({ load, activeLocale, t }: VersionInventoryT
       <div className="dvi">
         <style>{css}</style>
         <div className="dvi-error">
-          <span>{t('loadFailed', { message: state.message })}</span>
+          <span>{failureText(state.failure, t)}</span>
           <button type="button" onClick={refresh}>{t('retry')}</button>
         </div>
       </div>
@@ -376,7 +449,15 @@ export function VersionInventoryTab({ load, activeLocale, t }: VersionInventoryT
           </dl>
         </div>
         <div className="dvi-headside">
-          <button type="button" onClick={refresh}>{t('refresh')}</button>
+          <div className="dvi-headbuttons">
+            <CopyButton
+              text={report}
+              label={t('copyReport')}
+              title={t('copyReportTitle')}
+              t={t}
+            />
+            <button type="button" onClick={refresh}>{t('refresh')}</button>
+          </div>
           <span className="muted">{t('collectedAt', { time: collectedText(collectedAt, activeLocale()) })}</span>
         </div>
       </section>

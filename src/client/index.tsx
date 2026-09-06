@@ -16,11 +16,11 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { fetchInventory } from './api.js'
-import { en, zh, type VersionInventoryLocaleKey } from './locales.js'
+import { en, zh, type VersionInventoryLocaleKey } from '../locales.js'
 import { VersionInventoryTab, type VersionInventoryInjected } from './panel.js'
 
 export type { VersionInventoryInjected, VersionInventoryTabProps } from './panel.js'
-export type { VersionInventoryLocaleKey } from './locales.js'
+export type { VersionInventoryLocaleKey } from '../locales.js'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
