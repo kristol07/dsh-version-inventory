@@ -177,25 +177,19 @@ dsh plugin --profile web add link:/path/to/dsh-version-inventory
 
 ## 发布
 
-推一个版本 tag 就会发布，合并到 main 不会发布任何东西。一次性配置：在 npm 上建一个
-**automation** 类型的 access token，作为仓库 secret `NPM_TOKEN` 加进去（Settings →
-Secrets and variables → Actions）。automation token 是能在 CI 里绕过 2FA 的那种。
-
-之后每次发布就是：
+推一个 `v*` tag 就会发布，合并到 main 不会发布任何东西。没有任何 npm secret：workflow
+使用 [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/)，由 GitHub
+Actions 通过 OIDC 换取短期发布凭据。
 
 ```bash
 npm run release:check
 npm version patch          # 或 minor / major / 明确的 x.y.z
-git push --follow-tags
+git push origin main --follow-tags
 ```
 
-`npm version` 一步完成改清单、提交、打 tag，所以 tag 和清单不可能对不上。
-`.github/workflows/release.yml` 仍然会再核对一遍，拒绝已经发布过的版本，跑测试和打包检查，
-带 provenance 发布，并为该 tag 建一个 GitHub release。
-
-打 tag 前记得更新 `CHANGELOG.md` —— release notes 指向它。如果你的 npm 账号不接受
-provenance，把发布那步的 `--provenance` 去掉即可。想在 tag 之外再加一道人工审批，就给
-这个 job 加上 `environment: npm-publish` 并配置该环境的 reviewer。
+一次性的 GitHub / npm 配置和完整流程见 `docs/publishing.zh.md`，其中两个坑值得在第一次
+打 tag 之前知道：仅声明 `environment: npm` 并不会要求人工审批；以及该环境的部署规则必须
+允许 **tag**，只允许分支会直接卡住发布。
 
 ## 许可
 

@@ -177,29 +177,20 @@ Do **not** combine these routes — each inserts its own row.
 
 ## Releasing
 
-A pushed version tag publishes; nothing publishes on a merge. One-time setup:
-create an **automation** access token on npm and add it as the repository
-secret `NPM_TOKEN` (Settings → Secrets and variables → Actions). An automation
-token is the one that bypasses 2FA in CI.
-
-Then every release is:
+A pushed `v*` tag publishes; nothing publishes on a merge. There are no npm
+secrets: the workflow uses [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/),
+where GitHub Actions mints a short-lived credential over OIDC.
 
 ```bash
 npm run release:check
 npm version patch          # or minor / major / an explicit x.y.z
-git push --follow-tags
+git push origin main --follow-tags
 ```
 
-`npm version` writes the manifest, commits, and tags in one step, so the tag
-and the manifest cannot disagree. `.github/workflows/release.yml` then checks
-that they agree anyway, refuses a version already on the registry, runs the
-tests and the packaging checks, publishes with provenance, and opens a GitHub
-release for the tag.
-
-Update `CHANGELOG.md` before tagging — the release notes point at it. If your
-npm account rejects provenance, drop `--provenance` from the publish step. To
-require a human approval on top of the tag, add `environment: npm-publish` to
-the job and configure that environment's reviewers.
+`docs/publishing.md` has the one-time GitHub and npm setup and the full flow —
+including the two gotchas worth knowing before the first tag: declaring
+`environment: npm` does not by itself require approval, and the environment's
+deployment rule has to allow **tags**, not just branches.
 
 ## License
 
