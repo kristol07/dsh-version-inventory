@@ -107,8 +107,10 @@ describe('global plane', () => {
 
     const inventory = await collect(ctx)
     assert.equal(pkg(inventory, 'no-such-package-anywhere').version, null)
-    assert.equal(inventory.warnings.length, 2, inventory.warnings.join(' / '))
-    assert.ok(inventory.warnings.some(warning => warning.includes('无法解析到 package.json')))
+    assert.deepEqual(inventory.warnings.find(warning => warning.kind === 'unresolved-mounts'), {
+      kind: 'unresolved-mounts',
+      count: 1,
+    })
   })
 
   it('does not resolve a relative specifier that points at no file', async () => {
@@ -238,7 +240,10 @@ describe('duplicate copies', () => {
     await ctx.loader.create({ name: copy('copy-b'), disabled: true })
 
     const { warnings } = await collect(ctx)
-    assert.ok(warnings.some(warning => warning.includes('duplicated-fixture')), warnings.join(' / '))
+    assert.deepEqual(warnings.find(warning => warning.kind === 'duplicate-packages'), {
+      kind: 'duplicate-packages',
+      names: ['duplicated-fixture'],
+    })
   })
 
   it('still merges two specifiers that reach the same directory', async () => {
@@ -290,7 +295,11 @@ describe('harness version', () => {
     assert.equal(row.source, 'inferred')
     assert.equal(row.version, '0.1.2-rc.1')
     assert.equal(row.path, null)
-    assert.ok(warnings.some(warning => warning.includes('无法定位')))
+    assert.deepEqual(warnings.find(warning => warning.kind === 'harness-unlocated'), {
+      kind: 'harness-unlocated',
+      package: '@deepseek-ai/dsh',
+      scope: '@deepseek-ai/',
+    })
     assert.equal(row.node, process.version)
   })
 
@@ -408,7 +417,10 @@ describe('preset plane', () => {
 
     const inventory = await collect(ctx)
     assert.deepEqual(inventory.presets, [])
-    assert.ok(inventory.warnings.some(warning => warning.includes('roster root vanished')))
+    assert.deepEqual(inventory.warnings.find(w => w.kind === 'preset-inventory-unreadable'), {
+      kind: 'preset-inventory-unreadable',
+      reason: 'roster root vanished',
+    })
   })
 
   it('composes an empty roster when the deployment mounts no preset service', async () => {

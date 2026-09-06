@@ -120,6 +120,26 @@ export interface PresetSummary {
   readonly rowCount: number
 }
 
+/**
+ * One non-fatal collection problem, as data rather than as a sentence.
+ *
+ * The host cannot know which language the reader wants — the locale is a
+ * browser-side preference — so it reports what happened and the panel writes
+ * the sentence. A `reason` carried here is an error message from elsewhere and
+ * is interpolated verbatim.
+ */
+export type InventoryWarning =
+  /** No `@deepseek-ai/dsh` manifest was reachable; the version is inferred. */
+  | { readonly kind: 'harness-unlocated', readonly package: string, readonly scope: string }
+  /** Mounts whose specifier resolved to no package on disk. */
+  | { readonly kind: 'unresolved-mounts', readonly count: number }
+  /** Package names claimed by more than one loaded directory. */
+  | { readonly kind: 'duplicate-packages', readonly names: readonly string[] }
+  /** The preset roster's directories could not be read. */
+  | { readonly kind: 'preset-roots-unreadable', readonly reason: string }
+  /** The preset compositions could not be read at all. */
+  | { readonly kind: 'preset-inventory-unreadable', readonly reason: string }
+
 /** How confident the harness-version answer is. */
 export type HarnessVersionSource =
   /** Read from the running `@deepseek-ai/dsh` install located from argv. */
@@ -154,6 +174,6 @@ export interface VersionInventory {
    * roster — a real deployment shape, not a failure.
    */
   readonly presets: readonly PresetSummary[]
-  /** Non-fatal collection problems, written for a human reader. */
-  readonly warnings: readonly string[]
+  /** Non-fatal collection problems, as structured facts the reader renders. */
+  readonly warnings: readonly InventoryWarning[]
 }

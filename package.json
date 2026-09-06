@@ -43,14 +43,15 @@
     "lib/types/**/*.d.ts",
     "cordis.patch.yml",
     "README.md",
+    "README.zh.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && tsdown",
-    "test": "npm run build && node --test test/*.test.mjs",
+    "test": "npm run build && node --import tsx --test test/*.test.mjs",
     "verify:pack": "publint && attw --pack . --profile node16 --ignore-rules cjs-resolves-to-esm",
-    "prepack": "npm run build",
+    "prepare": "npm run build",
     "prepublishOnly": "npm test && npm run verify:pack"
   },
   "engines": {
@@ -76,6 +77,7 @@
     "@deepseek-ai/cordis": "4.0.2",
     "@deepseek-ai/cordis-plugin-loader": "1.0.3",
     "@deepseek-ai/dsh-agent-presets": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-client-locale": "^0.1.2-rc.1",
     "@deepseek-ai/dsh-client-modules": "^0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-renderer": "^0.1.2-rc.1",
     "@deepseek-ai/dsh-client-ui-settings": "0.1.2-rc.1",
@@ -86,6 +88,7 @@
     "publint": "^0.3.24",
     "react": "18.3.1",
     "tsdown": "^0.22.2",
+    "tsx": "^4.23.13",
     "typescript": "^6.0.3"
   }
 }

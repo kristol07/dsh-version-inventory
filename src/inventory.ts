@@ -25,6 +25,7 @@ import type {
   FiberPhase,
   HarnessRow,
   HarnessVersionSource,
+  InventoryWarning,
   PackageOrigin,
   PackageRow,
   PresetSummary,
@@ -363,7 +364,7 @@ function stringField(value: unknown): string | null {
  */
 function locateHarness(
   baseUrl: string | undefined,
-  warnings: string[],
+  warnings: InventoryWarning[],
 ): { version: string | null, source: HarnessVersionSource, path: string | null } {
   const bin = process.argv[1]
   if (typeof bin === 'string' && bin.length > 0) {
@@ -382,10 +383,7 @@ function locateHarness(
       // No install of the harness package is reachable from the profile.
     }
   }
-  warnings.push(
-    '无法定位 ' + HARNESS_PACKAGE + ' 的安装位置；下面的版本号由已加载的 '
-    + HARNESS_SCOPE + '* 包推断得出。',
-  )
+  warnings.push({ kind: 'harness-unlocated', package: HARNESS_PACKAGE, scope: HARNESS_SCOPE })
   return { version: null, source: 'unknown', path: null }
 }
 
@@ -480,7 +478,7 @@ async function collectPresetPlane(
   ctx: Context,
   index: PackageIndex,
   globalBaseUrl: string | undefined,
-  warnings: string[],
+  warnings: InventoryWarning[],
 ): Promise<PresetSummary[]> {
   const presets = ctx.get('agentPresets')
   if (presets === undefined) return []
@@ -495,14 +493,14 @@ async function collectPresetPlane(
       roots.set(preset.id, pathToFileURL(dirname(preset.path)).href + '/')
     }
   } catch (error) {
-    warnings.push('读取 preset 目录失败，preset 行只按 profile 的解析基址查找：' + reason(error))
+    warnings.push({ kind: 'preset-roots-unreadable', reason: reason(error) })
   }
 
   let compositions
   try {
     compositions = await presets.compositionInventory()
   } catch (error) {
-    warnings.push('读取 preset composition 失败，面板只反映全局平面：' + reason(error))
+    warnings.push({ kind: 'preset-inventory-unreadable', reason: reason(error) })
     return []
   }
 
@@ -553,7 +551,7 @@ function reason(error: unknown): string {
  * @returns the inventory, with every degradation recorded in `warnings`.
  */
 export async function collect(ctx: Context): Promise<VersionInventory> {
-  const warnings: string[] = []
+  const warnings: InventoryWarning[] = []
   const index = new PackageIndex()
 
   const observedBaseUrl = collectGlobalPlane(ctx, index)
@@ -564,16 +562,13 @@ export async function collect(ctx: Context): Promise<VersionInventory> {
   const presets = await collectPresetPlane(ctx, index, baseUrl, warnings)
 
   if (index.unresolved > 0) {
-    warnings.push(index.unresolved + ' 个挂载无法解析到 package.json，其版本显示为未知。')
+    warnings.push({ kind: 'unresolved-mounts', count: index.unresolved })
   }
 
   const drafted = index.values()
   const duplicates = duplicateNames(drafted)
   if (duplicates.size > 0) {
-    warnings.push(
-      '同一个包存在多份副本：' + [...duplicates].join('、')
-      + '。Cordis 服务、品牌类型和 instanceof 都按运行时身份匹配，重复副本会静默失配。',
-    )
+    warnings.push({ kind: 'duplicate-packages', names: [...duplicates] })
   }
   const install = locateHarness(baseUrl, warnings)
   const harnessVersion = install.version ?? modalHarnessVersion(drafted)

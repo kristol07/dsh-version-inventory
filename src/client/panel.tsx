@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   Enablement,
   EntryPlane,
   EntryRow,
   FiberPhase,
   HarnessVersionSource,
+  InventoryWarning,
   PackageOrigin,
   PackageRow,
   PresetSummary,
   VersionInventory,
 } from '../types.js'
+import type { VersionInventoryLocaleKey } from './locales.js'
 import { css } from './style.js'
 
 /** Registration-side face: the tab reads the host through its registrant, not through fetch itself. */
@@ -22,7 +24,11 @@ export interface VersionInventoryInjected {
 /** Full component props assembled by the Settings slot renderer. */
 export type VersionInventoryTabProps =
   PropsRuntime<'settings.plugins.tab'>
+  & PropsLocale<'settings.versionInventory'>
   & InjectFace<VersionInventoryInjected>
+
+/** The translate seat the renderer synthesizes from the declared namespace. */
+type Translate = VersionInventoryTabProps['t']
 
 type ViewState =
   | { readonly status: 'loading' }
@@ -32,47 +38,47 @@ type ViewState =
 /** Which plane the list is restricted to. */
 type PlaneFilter = 'all' | 'global' | 'preset'
 
-const PHASE_TEXT: Record<Exclude<FiberPhase, null>, string> = {
-  pending: '等待中',
-  loading: '加载中',
-  active: '运行中',
-  failed: '失败',
-  unloading: '卸载中',
-}
+const PHASE_KEYS = {
+  pending: 'phasePending',
+  loading: 'phaseLoading',
+  active: 'phaseActive',
+  failed: 'phaseFailed',
+  unloading: 'phaseUnloading',
+} satisfies Record<Exclude<FiberPhase, null>, VersionInventoryLocaleKey>
 
-const SOURCE_TEXT: Record<HarnessVersionSource, string> = {
-  install: '读自安装目录',
-  resolved: '解析自 profile',
-  inferred: '由已加载包推断',
-  unknown: '未能确定',
-}
+const SOURCE_KEYS = {
+  install: 'sourceInstall',
+  resolved: 'sourceResolved',
+  inferred: 'sourceInferred',
+  unknown: 'sourceUnknown',
+} satisfies Record<HarnessVersionSource, VersionInventoryLocaleKey>
 
-const GROUP_TEXT: Record<PackageOrigin, string> = {
-  'third-party': '第三方插件',
-  harness: 'Harness 官方包',
-  builtin: 'Cordis 内置',
-}
+const GROUP_KEYS = {
+  'third-party': 'groupThirdParty',
+  harness: 'groupHarness',
+  builtin: 'groupBuiltin',
+} satisfies Record<PackageOrigin, VersionInventoryLocaleKey>
 
-const PLANE_FILTER_TEXT: Record<PlaneFilter, string> = {
-  all: '全部平面',
-  global: '仅全局平面',
-  preset: '仅 preset 平面',
-}
+const PLANE_FILTER_KEYS = {
+  all: 'planeAll',
+  global: 'planeGlobalOnly',
+  preset: 'planePresetOnly',
+} satisfies Record<PlaneFilter, VersionInventoryLocaleKey>
 
 /** Display name for one plane: the preset's own name, falling back to its id. */
-function planeText(plane: EntryPlane): string {
-  return plane.kind === 'global' ? '全局' : plane.presetName ?? plane.presetId
+function planeText(plane: EntryPlane, t: Translate): string {
+  return plane.kind === 'global' ? t('planeGlobal') : plane.presetName ?? plane.presetId
 }
 
 /** Human phase text; a mount with no live root fiber says so rather than guessing. */
-function phaseText(phase: FiberPhase): string {
-  return phase === null ? '未观测' : PHASE_TEXT[phase]
+function phaseText(phase: FiberPhase, t: Translate): string {
+  return t(phase === null ? 'phaseUnobserved' : PHASE_KEYS[phase])
 }
 
 /** Human enablement text, keeping `conditional` distinct from plainly disabled. */
-function enablementText(row: EntryRow): string {
-  if (row.enabled === 'conditional') return '条件启用'
-  return row.enabled ? phaseText(row.fiberPhase) : '已停用'
+function enablementText(row: EntryRow, t: Translate): string {
+  if (row.enabled === 'conditional') return t('stateConditional')
+  return row.enabled ? phaseText(row.fiberPhase, t) : t('stateDisabled')
 }
 
 /** The phase a package row shows: the worst state among its mounts, so a failure is never hidden. */
@@ -94,6 +100,27 @@ function collectedText(iso: string): string {
   return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleTimeString()
 }
 
+/** Render one structured collection warning in the reader's language. */
+function warningText(warning: InventoryWarning, t: Translate): string {
+  switch (warning.kind) {
+    case 'harness-unlocated':
+      return t('warnHarnessUnlocated', { package: warning.package, scope: warning.scope })
+    case 'unresolved-mounts':
+      return t('warnUnresolved', { count: warning.count })
+    case 'duplicate-packages':
+      return t('warnDuplicates', { names: warning.names.join(', ') })
+    case 'preset-roots-unreadable':
+      return t('warnPresetRoots', { reason: warning.reason })
+    case 'preset-inventory-unreadable':
+      return t('warnPresetInventory', { reason: warning.reason })
+  }
+}
+
+/** A stable key for one warning, so the list survives a refresh without remounting. */
+function warningKey(warning: InventoryWarning): string {
+  return warning.kind
+}
+
 /** One status dot plus its accessible name. */
 function Dot({ phase, on, label }: { phase: FiberPhase, on: boolean, label: string }): ReactNode {
   return <span className={'dvi-dot ' + (on ? phase ?? '' : 'off')} role="img" aria-label={label} title={label}/>
@@ -103,11 +130,11 @@ function Dot({ phase, on, label }: { phase: FiberPhase, on: boolean, label: stri
  * One mount's config summary — the only thing that tells two mounts of the
  * same package apart.
  */
-function ConfigSummary({ entry }: { entry: EntryRow }): ReactNode {
+function ConfigSummary({ entry, t }: { entry: EntryRow, t: Translate }): ReactNode {
   if (entry.config === null) {
-    return <span className="muted" title="preset composition 的清单不携带 config">config 不可见</span>
+    return <span className="muted" title={t('configHiddenTitle')}>{t('configHidden')}</span>
   }
-  if (entry.config.length === 0) return <span className="muted">无 config</span>
+  if (entry.config.length === 0) return <span className="muted">{t('configNone')}</span>
   return (
     <span className="dvi-config">
       {entry.config.map(field => (
@@ -122,69 +149,62 @@ function ConfigSummary({ entry }: { entry: EntryRow }): ReactNode {
 }
 
 /** The planes a package is mounted on, as compact tags. */
-function PlaneTags({ entries }: { entries: readonly EntryRow[] }): ReactNode {
+function PlaneTags({ entries, t }: { entries: readonly EntryRow[], t: Translate }): ReactNode {
   const global = entries.some(entry => entry.plane.kind === 'global')
   const presets = [...new Set(entries
     .filter(entry => entry.plane.kind === 'preset')
-    .map(entry => planeText(entry.plane)))]
+    .map(entry => planeText(entry.plane, t)))]
   return (
     <>
-      {global && <span className="dvi-tag">全局</span>}
+      {global && <span className="dvi-tag">{t('planeGlobal')}</span>}
       {presets.length > 2
-        ? <span className="dvi-tag">{presets.length} 个 preset</span>
+        ? <span className="dvi-tag">{t('planePresetCount', { count: presets.length })}</span>
         : presets.map(name => <span key={name} className="dvi-tag preset">{name}</span>)}
     </>
   )
 }
 
 /** One expandable package row. */
-function PackageCard({ row }: { row: PackageRow }): ReactNode {
+function PackageCard({ row, t }: { row: PackageRow, t: Translate }): ReactNode {
   const live = row.entries.some(entry => isOn(entry.enabled))
+  const phase = summaryPhase(row.entries)
   return (
     <details className="dvi-row">
       <summary>
-        <Dot
-          phase={summaryPhase(row.entries)}
-          on={live}
-          label={live ? phaseText(summaryPhase(row.entries)) : '已停用'}
-        />
+        <Dot phase={phase} on={live} label={live ? phaseText(phase, t) : t('stateDisabled')}/>
         <span className="dvi-name mono">{row.name}</span>
         {row.duplicate && (
-          <span className="dvi-tag bad" title="同一个包在本进程里存在多份副本">副本</span>
+          <span className="dvi-tag bad" title={t('tagDuplicateTitle')}>{t('tagDuplicate')}</span>
         )}
-        <PlaneTags entries={row.entries}/>
+        <PlaneTags entries={row.entries} t={t}/>
         {row.isBundle && <span className="dvi-tag">bundle</span>}
         {row.hasClientHalf && <span className="dvi-tag">web</span>}
         <span
           className={'dvi-ver' + (row.duplicate || row.versionDrift ? ' drift' : row.version === null ? ' none' : '')}
-          title={row.versionDrift ? '版本与当前 Harness 版本不一致' : undefined}
+          title={row.versionDrift ? t('driftTitle') : undefined}
         >
-          {row.version ?? '版本未知'}
+          {row.version ?? t('versionUnknown')}
         </span>
       </summary>
       <dl className="dvi-detail">
-        {row.description !== null && <><dt>说明</dt><dd>{row.description}</dd></>}
-        <dt>位置</dt>
-        <dd className="mono">{row.path ?? '未解析到 package.json'}</dd>
-        <dt>挂载</dt>
+        {row.description !== null && <><dt>{t('detailDescription')}</dt><dd>{row.description}</dd></>}
+        <dt>{t('detailPath')}</dt>
+        <dd className="mono">{row.path ?? t('pathUnresolved')}</dd>
+        <dt>{t('detailMounts')}</dt>
         <dd>
           <ul className="dvi-entries">
             {row.entries.map((entry, index) => (
               <li key={(entry.entryId ?? entry.specifier) + '@' + String(index)}>
                 <span className="dvi-entry-head">
-                  <Dot
-                    phase={entry.fiberPhase}
-                    on={isOn(entry.enabled)}
-                    label={enablementText(entry)}
-                  />
-                  <span className="mono">{entry.entryId ?? '（未声明 id）'}</span>
-                  <span className="dvi-tag">{planeText(entry.plane)}</span>
-                  <span className="muted">{enablementText(entry)}</span>
+                  <Dot phase={entry.fiberPhase} on={isOn(entry.enabled)} label={enablementText(entry, t)}/>
+                  <span className="mono">{entry.entryId ?? t('entryNoId')}</span>
+                  <span className="dvi-tag">{planeText(entry.plane, t)}</span>
+                  <span className="muted">{enablementText(entry, t)}</span>
                   {entry.specifier !== row.name && <span className="mono muted">{entry.specifier}</span>}
                 </span>
-                <ConfigSummary entry={entry}/>
+                <ConfigSummary entry={entry} t={t}/>
                 {entry.condition !== null && (
-                  <span className="mono muted" title="该行自己的 !!js disabled 表达式">
+                  <span className="mono muted" title={t('conditionTitle')}>
                     disabled: {entry.condition}
                   </span>
                 )}
@@ -199,29 +219,30 @@ function PackageCard({ row }: { row: PackageRow }): ReactNode {
 
 /** One origin group; empty groups are not rendered at all. */
 function Group(
-  { origin, rows, open }: { origin: PackageOrigin, rows: readonly PackageRow[], open: boolean },
+  { origin, rows, open, t }:
+  { origin: PackageOrigin, rows: readonly PackageRow[], open: boolean, t: Translate },
 ): ReactNode {
   if (rows.length === 0) return null
   return (
     <details className="dvi-group" open={open}>
       <summary>
-        {GROUP_TEXT[origin]}
-        <span className="muted">{rows.length} 个包</span>
+        {t(GROUP_KEYS[origin])}
+        <span className="muted">{t('countPackages', { count: rows.length })}</span>
       </summary>
       {/* Two copies of one package share a name, so the path is the identity. */}
-      {rows.map(row => <PackageCard key={row.path ?? row.name} row={row}/>)}
+      {rows.map(row => <PackageCard key={row.path ?? row.name} row={row} t={t}/>)}
     </details>
   )
 }
 
 /** The preset roster, so an empty preset plane is legible instead of just absent. */
-function PresetRoster({ presets }: { presets: readonly PresetSummary[] }): ReactNode {
+function PresetRoster({ presets, t }: { presets: readonly PresetSummary[], t: Translate }): ReactNode {
   if (presets.length === 0) return null
   return (
     <details className="dvi-group">
       <summary>
-        Agent Preset 名册
-        <span className="muted">{presets.length} 个 preset</span>
+        {t('rosterTitle')}
+        <span className="muted">{t('rosterCount', { count: presets.length })}</span>
       </summary>
       {presets.map(preset => (
         <div key={preset.id} className="dvi-row dvi-preset">
@@ -229,11 +250,11 @@ function PresetRoster({ presets }: { presets: readonly PresetSummary[] }): React
             {preset.name ?? preset.id}
             {preset.name !== null && <span className="mono muted"> {preset.id}</span>}
           </span>
-          {preset.isDefault && <span className="dvi-tag">默认</span>}
-          <span className="dvi-tag">{preset.trust === 'system' ? '内置' : '用户'}</span>
+          {preset.isDefault && <span className="dvi-tag">{t('presetDefault')}</span>}
+          <span className="dvi-tag">{t(preset.trust === 'system' ? 'presetSystem' : 'presetUser')}</span>
           {preset.broken === null
-            ? <span className="dvi-ver">{preset.rowCount} 行</span>
-            : <span className="dvi-ver drift" title={preset.broken}>读取失败</span>}
+            ? <span className="dvi-ver">{t('presetRows', { count: preset.rowCount })}</span>
+            : <span className="dvi-ver drift" title={preset.broken}>{t('presetBroken')}</span>}
         </div>
       ))}
     </details>
@@ -243,10 +264,10 @@ function PresetRoster({ presets }: { presets: readonly PresetSummary[] }): React
 /**
  * The Plugins settings tab: the running harness version, and the version of
  * every package mounted on either harness plane.
- * @param props - the slot-assembled props, carrying the registrant's `load`.
+ * @param props - the slot-assembled props, carrying the registrant's `load` and `t`.
  * @returns the tab body.
  */
-export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNode {
+export function VersionInventoryTab({ load, t }: VersionInventoryTabProps): ReactNode {
   const [state, setState] = useState<ViewState>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
   const [query, setQuery] = useState('')
@@ -259,7 +280,7 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
       inventory => { if (!abort.signal.aborted) setState({ status: 'ready', inventory }) },
       (error: unknown) => {
         if (abort.signal.aborted) return
-        setState({ status: 'error', message: error instanceof Error ? error.message : '读取失败。' })
+        setState({ status: 'error', message: error instanceof Error ? error.message : '' })
       },
     )
     return () => { abort.abort() }
@@ -282,8 +303,8 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
         || (row.version ?? '').toLowerCase().includes(needle)
         || row.entries.some(entry =>
           (entry.entryId ?? '').toLowerCase().includes(needle)
-          || planeText(entry.plane).toLowerCase().includes(needle)))
-  }, [inventory, query, plane])
+          || planeText(entry.plane, t).toLowerCase().includes(needle)))
+  }, [inventory, query, plane, t])
 
   const byOrigin = useCallback(
     (origin: PackageOrigin) => filtered.filter(row => row.origin === origin),
@@ -291,15 +312,15 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
   )
 
   if (state.status === 'loading') {
-    return <div className="dvi"><style>{css}</style><p className="dvi-empty">正在读取版本清单…</p></div>
+    return <div className="dvi"><style>{css}</style><p className="dvi-empty">{t('loading')}</p></div>
   }
   if (state.status === 'error') {
     return (
       <div className="dvi">
         <style>{css}</style>
         <div className="dvi-error">
-          <span>读取版本清单失败：{state.message}</span>
-          <button type="button" onClick={refresh}>重试</button>
+          <span>{t('loadFailed', { message: state.message })}</span>
+          <button type="button" onClick={refresh}>{t('retry')}</button>
         </div>
       </div>
     )
@@ -311,7 +332,7 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
   const unhealthy = packages.filter(row =>
     row.entries.some(entry => entry.enabled === true && entry.fiberPhase !== 'active')).length
   const drifted = packages.filter(row => row.versionDrift).length
-  const duplicated = new Set(packages.filter(row => row.duplicate).map(row => row.name))
+  const duplicated = [...new Set(packages.filter(row => row.duplicate).map(row => row.name))]
   const expanded = query.trim() !== '' || plane !== 'all'
 
   return (
@@ -322,73 +343,76 @@ export function VersionInventoryTab({ load }: VersionInventoryTabProps): ReactNo
         <div>
           <h2>DeepSeek Harness</h2>
           <div className="dvi-version">
-            <strong>{harness.version ?? '版本未知'}</strong>
-            <span className="dvi-tag">{SOURCE_TEXT[harness.source]}</span>
+            <strong>{harness.version ?? t('versionUnknown')}</strong>
+            <span className="dvi-tag">{t(SOURCE_KEYS[harness.source])}</span>
           </div>
           <dl className="dvi-facts">
-            <dt>Node</dt><dd className="mono">{harness.node} · {harness.platform}</dd>
-            <dt>DSH_HOME</dt><dd className="mono">{harness.home}</dd>
-            {harness.path !== null && <><dt>安装位置</dt><dd className="mono">{harness.path}</dd></>}
+            <dt>{t('nodeLabel')}</dt><dd className="mono">{harness.node} · {harness.platform}</dd>
+            <dt>{t('homeLabel')}</dt><dd className="mono">{harness.home}</dd>
+            {harness.path !== null && (
+              <><dt>{t('installLabel')}</dt><dd className="mono">{harness.path}</dd></>
+            )}
           </dl>
         </div>
         <div className="dvi-headside">
-          <button type="button" onClick={refresh}>刷新</button>
-          <span className="muted">采集于 {collectedText(collectedAt)}</span>
+          <button type="button" onClick={refresh}>{t('refresh')}</button>
+          <span className="muted">{t('collectedAt', { time: collectedText(collectedAt) })}</span>
         </div>
       </section>
 
       <section className="dvi-metrics">
-        <div className="dvi-metric"><b>{packages.length}</b><span>已加载的包</span></div>
-        <div className="dvi-metric"><b>{mountCount}</b><span>挂载点</span></div>
-        <div className="dvi-metric"><b>{thirdParty}</b><span>第三方插件</span></div>
+        <div className="dvi-metric"><b>{packages.length}</b><span>{t('metricPackages')}</span></div>
+        <div className="dvi-metric"><b>{mountCount}</b><span>{t('metricMounts')}</span></div>
+        <div className="dvi-metric"><b>{thirdParty}</b><span>{t('metricThirdParty')}</span></div>
         <div className={'dvi-metric' + (unhealthy > 0 ? ' bad' : '')}>
-          <b>{unhealthy}</b><span>未处于运行中</span>
+          <b>{unhealthy}</b><span>{t('metricNotRunning')}</span>
         </div>
       </section>
 
-      {duplicated.size > 0 && (
+      {duplicated.length > 0 && (
         <p className="dvi-note bad">
-          有 {duplicated.size} 个包在本进程里存在多份副本（{[...duplicated].join('、')}）。
-          Cordis 服务、品牌类型和 <code>instanceof</code> 都按运行时身份匹配，重复副本会静默失配 —— 展开对比它们的「位置」找出多出来的那份。
+          {t('noteDuplicates', { count: duplicated.length, names: duplicated.join(', ') })}
         </p>
       )}
       {drifted > 0 && (
         <p className="dvi-note">
-          有 {drifted} 个官方包的版本与当前 Harness 版本（{harness.version}）不一致，已在列表中标出。
+          {t('noteDrift', { count: drifted, version: harness.version ?? t('versionUnknown') })}
         </p>
       )}
-      {warnings.map(warning => <p key={warning} className="dvi-note">{warning}</p>)}
+      {warnings.map(warning => (
+        <p key={warningKey(warning)} className="dvi-note">{warningText(warning, t)}</p>
+      ))}
 
       <div className="dvi-toolbar">
         <input
           type="search"
           value={query}
-          placeholder="按包名、版本、挂载 id 或 preset 名过滤"
-          aria-label="过滤版本清单"
+          placeholder={t('filterPlaceholder')}
+          aria-label={t('filterLabel')}
           onChange={event => { setQuery(event.target.value) }}
         />
         <select
           value={plane}
-          aria-label="按平面过滤"
+          aria-label={t('planeLabel')}
           onChange={event => { setPlane(event.target.value as PlaneFilter) }}
         >
-          {Object.entries(PLANE_FILTER_TEXT).map(([value, text]) => (
-            <option key={value} value={value}>{text}</option>
+          {Object.entries(PLANE_FILTER_KEYS).map(([value, key]) => (
+            <option key={value} value={value}>{t(key)}</option>
           ))}
         </select>
       </div>
 
       {filtered.length === 0
-        ? <p className="dvi-empty">没有匹配的包。</p>
+        ? <p className="dvi-empty">{t('emptyFiltered')}</p>
         : (
           <>
-            <Group origin="third-party" rows={byOrigin('third-party')} open/>
-            <Group origin="harness" rows={byOrigin('harness')} open={expanded}/>
-            <Group origin="builtin" rows={byOrigin('builtin')} open={expanded}/>
+            <Group origin="third-party" rows={byOrigin('third-party')} open t={t}/>
+            <Group origin="harness" rows={byOrigin('harness')} open={expanded} t={t}/>
+            <Group origin="builtin" rows={byOrigin('builtin')} open={expanded} t={t}/>
           </>
         )}
 
-      <PresetRoster presets={presets}/>
+      <PresetRoster presets={presets} t={t}/>
     </div>
   )
 }

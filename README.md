@@ -1,117 +1,157 @@
 # dsh-version-inventory
 
-在 dsh Web 界面里显示**当前 Harness 版本**和**每个已加载插件的包版本**。
+English | [中文](README.zh.md)
 
-设置 → 插件 → **版本** 标签页，就在官方的「插件列表」标签旁边。官方那个标签只显示模块名、启用状态和 fiber 状态，不显示版本号；这个插件补上版本这一列，并额外给出安装位置、Node 版本、`DSH_HOME`，以及官方包之间的版本漂移告警。
+Shows the **running DeepSeek Harness version** and **the package version of every mounted plugin** inside the dsh web UI.
 
-## 两个平面
+Settings → Plugins → **Versions**, beside the shipped plugin list. That list shows module names, enablement, and fiber state but no versions; this tab adds the version column, plus the install path, Node version, `DSH_HOME`, a duplicate-copy alarm, and a warning when a harness package drifts from the running harness version.
 
-Harness 把插件挂在**两个平面**上，面板两边都读：
+The UI follows the client's language setting — English and Simplified Chinese ship in the box.
 
-- **全局平面** —— profile 的 Loader 树：bundle patch 层叠加上你自己的 `cordis.patch.yml`。`ctx.loader.entries()` 走的就是这里。
-- **preset 平面** —— 每个 agent preset 的 composition（`agent.<preset>.yml`），**按会话挂载**：某个会话选了哪个 preset，才挂那个 preset 的行。所以一个只存在于 preset 里的插件（比如创造模式的 `@deepseek-ai/dsh-tool-cordis`）在全局 Loader 树里根本查不到。
+## The two planes
 
-只读全局平面会漏掉后者。面板通过可选服务 `ctx.get('agentPresets')` 的 `compositionInventory()` 补上 —— 那是**读文件**，不是读活的树，所以没开会话也能列出来，而且读取本身不会提前挂载任何 preset。没有 preset 名册的部署是一种真实形态，不是故障，这种情况下 preset 平面为空。
+The harness mounts plugins on **two planes**, and the panel reads both:
 
-每个挂载都带自己的平面标记，面板顶部可以按平面过滤；同一个包在两个平面各挂一次，会合并成一行、列出两个挂载。
+- **The global plane** — the profile's Loader tree: the bundle patch layers under your own `cordis.patch.yml`. This is what `ctx.loader.entries()` walks.
+- **The preset plane** — each agent preset's composition (`agent.<preset>.yml`), mounted **per session** when that preset is selected. A plugin that lives only in a preset — `@deepseek-ai/dsh-tool-cordis` in the shipped `cordis` (Creator mode) preset, say — never appears in the global Loader tree at all.
 
-## 「包」和「挂载」的区别
+Reading only the global plane misses the second one. The panel fills it in through the optional `ctx.get('agentPresets')` service and its `compositionInventory()`, which reads composition **files** rather than the live tree: an unmounted preset still lists its plugins, and reading one cannot mount it early. A deployment that composes no roster is a real shape, not a failure — there the preset plane is simply empty.
 
-**包是代码，挂载是这份代码的一次装载**：一个 id、一份 config、一个 fiber。同一个包被挂多次是设计意图，不是重复项 —— 官方 `@deepseek-ai/dsh-tool-subagent` 在创造模式里就被挂了三次，靠 config 区分成 `subagent` / `subagent_fork` / `subagent_codex` 三个工具。
+Every mount carries its plane, the panel filters by plane, and a package mounted on both planes is one row listing both mounts.
 
-所以每个挂载都会显示自己的 config 摘要，这是唯一能把两次挂载分开的东西：
+## Packages and mounts
+
+**A package is code; a mount is one loading of that code** — with its own id, its own config, and its own fiber. Mounting one package several times is the design, not duplication: the shipped `@deepseek-ai/dsh-tool-subagent` is mounted three times in Creator mode, and config alone turns it into the `subagent`, `subagent_fork`, and `subagent_codex` tools.
+
+So each mount shows its config summary, the one thing that tells two mounts apart:
 
 ```
-● tool-subagent       创造模式  运行中
+● tool-subagent       Creator mode  running
   provider=spawn  toolName=subagent  backgroundMode=continuable
-● tool-subagent-fork  创造模式  运行中
+● tool-subagent-fork  Creator mode  running
   provider=fork   toolName=subagent_fork
 ```
 
-摘要不是 config 的转储：只取顶层字段，嵌套值折叠成形状（`{provider, toolName, …}`、`[3]`），长字符串截断到 60 字符，超过 8 个字段的部分只计数。**键名带 `key` / `token` / `secret` / `password` / `credential` / `auth` 的字段一律只显示 `***`** —— 宁可多挡，漏一个 token 的代价是轮换密钥，多挡一个无害字段的代价只是去看一眼配置文件。
+The summary is not a config dump: top-level fields only, nested values collapsed to their shape (`{provider, toolName, …}`, `[3]`), strings truncated at 60 characters, and anything past eight fields counted rather than listed. **A key containing `key`, `token`, `secret`, `password`, `credential`, or `auth` has its value withheld as `***`** — over-redaction is the safe direction, since withholding a benign value costs one look at the config file while printing a token costs a rotation.
 
-preset composition 的清单本身不携带 config，所以 preset 行显示「config 不可见」，而不是显示成「无 config」。
+A preset composition inventory carries no config, so preset rows read "config not visible" rather than "no config".
 
-## 它怎么拿到版本号
+## How it gets the versions
 
-两个平面给出的都只是**模块说明符**（`@deepseek-ai/dsh-tool-bash`、`file:///…/lib/index.js`），不记录版本。所以宿主半边做三件事：
+Both planes hand out **module specifiers** (`@deepseek-ai/dsh-tool-bash`, `file:///…/lib/index.js`), never versions. So the host half does three things:
 
-1. 遍历全局条目（跳过 group）和每个 preset 的 composition 行；
-2. 用 Loader 自己的解析器（`loader.internal.resolveSync`，退化时用 `createRequire(baseUrl).resolve`）把说明符解析成模块 URL，再从该文件向上找最近的 `package.json` —— 刻意绕开 `exports` 映射，因为不是每个包都导出 `./package.json`；
-3. 读出 `name` / `version` / `description` / `dsh.bundle` / `dsh.client`，并**按包所在目录**把多个挂载合并（子路径条目 `@deepseek-ai/dsh-tool-subagent/model-selection-settings` 会归到 `@deepseek-ai/dsh-tool-subagent` 名下，因为两者解析到同一个目录）。
+1. Walks the global entries (skipping groups) and every preset's composition rows.
+2. Resolves each specifier through the Loader's own resolver (`loader.internal.resolveSync`, falling back to `createRequire(baseUrl).resolve`) and walks up from the resolved file to the nearest `package.json` — deliberately bypassing the `exports` map, because not every package publishes `./package.json`.
+3. Reads `name` / `version` / `description` / `dsh.bundle` / `dsh.client`, and merges mounts **by the package's directory** (so the subpath entry `@deepseek-ai/dsh-tool-subagent/model-selection-settings` folds onto `@deepseek-ai/dsh-tool-subagent`, since both resolve into the same directory).
 
-按目录而不是按包名归并是有意的：**同一个包同时存在两份不同版本**是最该被发现的情况 —— Cordis 服务、品牌类型和 `instanceof` 全都按运行时身份匹配，两份副本会静默失配 —— 而按包名归并恰好会把第二份折叠掉、连版本都丢了。现在两份副本各占一行、并排排序，各自带「副本」标记，顶部还有一条红色提示点名。
+Merging by directory rather than by name is deliberate: **two copies of one package at two versions** is the condition most worth finding — Cordis matches services, branded types, and `instanceof` on runtime identity, so duplicate copies mismatch silently — and merging by name would fold the second copy away, version and all. Duplicates now take one row each, sorted adjacent, tagged, and named in a banner.
 
-**解析基址的顺序不是随意的**：preset 行的包名要用 **profile 的基址**解析，preset 自己的目录只作为相对路径的兜底。这跟名册自己的做法一致 —— 用户自建的 preset 放在 harness home 下，Node 向上找 `node_modules` 永远走不到 harness 的依赖，所以 preset 目录是解析包名的错误基址。路径型说明符还会先 `existsSync` 校验，否则一个不存在的相对路径会向上撞到某个无关的 `package.json` 并被当成答案。
+**The order of resolution bases is not arbitrary.** A preset row's package name resolves from the **profile's** base, with the preset's own directory only as the fallback for a relative path. That mirrors what the roster itself does: a user-authored preset lives under the harness home, where Node's upward `node_modules` walk never reaches the harness's dependencies, so the preset directory is the wrong base for a package name. Path-like specifiers are checked with `existsSync` first, because a relative path that resolves to nothing would otherwise walk up into some unrelated `package.json` and be reported as the owner.
 
-Harness 自身的版本来自 `process.argv[1]` 向上找到的 `@deepseek-ai/dsh` 的 `package.json` —— 也就是**正在运行的那个 bin**，无论它是源码检出里的 `apps/cli/src/bin.ts` 还是安装出来的 `node_modules/@deepseek-ai/dsh/lib/bin.js`。找不到时退化为「已加载的 `@deepseek-ai/*` 包里出现次数最多的版本」，并在界面上标明这是推断值，不会假装是确定答案。
+The harness's own version comes from the `package.json` above `process.argv[1]` — **the bin that is actually running**, whether that is `apps/cli/src/bin.ts` in a source checkout or `node_modules/@deepseek-ai/dsh/lib/bin.js` from an install. When that is unreachable it degrades to the modal version among the loaded `@deepseek-ai/*` packages, and the panel marks the answer as inferred rather than presenting it as fact.
 
-`cordis:` 内置条目没有包也没有版本，界面如实显示为「Cordis 内置」而不是编一个版本出来。
+`cordis:` builtins have no package and no version; they are reported as Cordis builtins instead of being given an invented one.
 
-## 结构
+## Layout
 
-| 文件 | 作用 |
+| File | Role |
 |---|---|
-| `src/index.ts` | 宿主插件入口；`inject: ['loader']`，并在 `webServer` 出现后嵌套注册读取路由 |
-| `src/inventory.ts` | 采集逻辑：两个平面的挂载 → 包清单 |
-| `src/web.ts` | `GET /dsh-version-inventory/api/list`，同源 + loopback + 自定义头的信任围栏 |
-| `src/client/index.tsx` | 通过 `ctx.slots.inject('settings.plugins.tab', …)` 贡献标签页 |
-| `src/client/panel.tsx` | 面板本体 |
-| `src/types.ts` | 两半共用的 wire 类型（浏览器侧只做 type-only import） |
+| `src/index.ts` | Host plugin entry; `inject: ['loader']`, with the read route registered under a nested `webServer` injection |
+| `src/inventory.ts` | Collection: mounts on both planes → package rows |
+| `src/web.ts` | `GET /dsh-version-inventory/api/list`, fenced to same-origin loopback with a custom header |
+| `src/client/index.tsx` | Contributes the tab through `ctx.slots.inject('settings.plugins.tab', …)` and registers the dictionaries |
+| `src/client/panel.tsx` | The panel itself |
+| `src/client/locales.ts` | `en` and `zh` dictionaries; `en` is the key source of truth |
+| `src/types.ts` | Wire types shared by both halves (the browser side imports them type-only) |
 
-宿主半边不持有任何状态：每次请求都重新读一遍。Loader 已经维护着 `Entry.fiber` 和 `Fiber.state`，preset 名册也刻意在每次调用时重读根目录，再加一份缓存只会多出一个需要同步的真相来源。
+The host half holds no state: every request re-reads. The Loader already maintains `Entry.fiber` and `Fiber.state`, and the preset roster deliberately re-reads its roots on every call, so a second cache would only add another lifecycle truth to keep synchronized.
 
-`webServer` 是**嵌套依赖**（`ctx.inject(['webServer'], …)`）而不是声明依赖，所以同一个包在 headless / ACP profile 里也能加载 —— 在那里它只是什么都不贡献，而不会让整棵树一直 pending。
+`webServer` is a **nested** dependency (`ctx.inject(['webServer'], …)`) rather than a declared one, so the same package still loads in a headless or ACP profile — there it simply contributes nothing instead of holding the tree pending forever.
 
-## 兼容性
+Warnings cross the wire as **structured facts**, not sentences: the host cannot know the reader's language, so it reports `{ kind: 'duplicate-packages', names: [...] }` and the panel writes the sentence. That also makes the route's JSON useful to anything else that reads it.
 
-| 项 | 要求 |
+## Compatibility
+
+| | |
 |---|---|
 | Node | `^22.19.0 \|\| >=24.0.0` |
-| DSH | `>= 0.1.2-rc.1`，需要 `web` profile（`webServer` + `settings.plugins.tab`） |
-| 运行时依赖 | **无** |
+| DSH | `>= 0.1.2-rc.1`, on a `web` profile (needs `webServer` and `settings.plugins.tab`) |
+| Runtime dependencies | **none** |
 
-**这个包没有 `dependencies`，也没有 `peerDependencies`，这是刻意的。** 它在运行时不 import 任何 harness 模块 —— 宿主半边只 import Node 内建模块，浏览器半边只 `require` 平台种子模块，其余能力全部通过 `ctx.*` 服务获得。所有 `@deepseek-ai/*` 都只在 `devDependencies` 里，只用于类型和测试。
+**This package declares no `dependencies` and no `peerDependencies`, deliberately.** It imports no harness module at runtime — the host half imports Node builtins only, the browser half requires platform seed modules only, and every capability arrives through `ctx`. Every `@deepseek-ai/*` package is a `devDependency`, used for types and tests.
 
-之所以不写成 peerDependencies：dsh 目前整个家族都在预发布版本上（`0.1.2-rc.1`、`0.1.3-alpha.1`），而 semver 的预发布匹配规则要求区间里存在同 `[major.minor.patch]` 的比较符，所以 `>=0.1.2-rc.1` **不匹配** `0.1.3-alpha.1`。任何写死的区间都会对正常安装报假警告。等 dsh 发出正式版本后可以再加回来。
+Peer ranges are omitted because they would misfire today: the dsh family ships prereleases (`0.1.2-rc.1`, `0.1.3-alpha.1`), and semver only admits a prerelease when the range holds a comparator with the same `[major.minor.patch]`, so `>=0.1.2-rc.1` does **not** match `0.1.3-alpha.1`. Any pinned range would warn on a healthy install. They can come back once dsh ships stable versions.
 
-服务缺席时的降级都是明确的：没有 `webServer` 就不注册路由（headless / ACP profile 照样能加载这个包），没有 `agentPresets` 就 preset 平面为空，没有 `settings.plugins.tab` 声明就不贡献标签页。
+Every missing service degrades explicitly: no `webServer` means no route (a headless or ACP profile still loads the package), no `agentPresets` means an empty preset plane, and no `settings.plugins.tab` declaration means no tab.
 
-## 构建与测试
+## Build and test
 
 ```bash
 npm install && npm test
 ```
 
-`npm test` 先构建，再用 `node --test` 跑 `test/` 下的集成测试：
+`npm test` builds, then runs the suites under `test/`:
 
-- `inventory.test.mjs` —— 真实的 Cordis Loader + 真实的 `package.json` 解析，preset 名册用一个只实现 `list()` / `compositionInventory()` 的替身。条目一律以 `disabled: true` 创建：停用的条目永远不会被 import，所以测试只走解析和清单读取，不启动任何插件。同名不同版本的副本用 `test/fixtures/` 下两个真实的包目录构造。
-- `client-bundle.test.mjs` —— 用 npm 上真实的 `@deepseek-ai/dsh-client-modules` 扫描器跑一遍：断言本包进了 boot graph、`/plugins` 路由能取到构建产物、factory id 与包名一致，以及**bundle 只 `require` 平台种子模块**。最后这条是最有价值的一条 —— 浏览器插件最常见的坏法就是多出一个模块表答不上来的 `require`，那会在 materialize 时直接抛。
+- `inventory.test.mjs` — a real Cordis Loader and real `package.json` resolution, with a roster stub implementing only `list()` and `compositionInventory()`. Entries are created `disabled: true`: a disabled entry is never imported, so the tests exercise resolution and manifest reading without starting any plugin. Two real package directories under `test/fixtures/` supply the same-name, different-version duplicate case.
+- `client-bundle.test.mjs` — runs the real `@deepseek-ai/dsh-client-modules` scanner from npm: the package joins the boot graph, the `/plugins` route serves the built bundle, the factory id matches the module-table key, and **the bundle requires nothing beyond the platform seeds**. That last one is the most valuable check here — the commonest way a browser plugin breaks is one extra `require` the module table cannot answer, which throws when the factory materializes.
+- `locales.test.mjs` — every locale ships the same keys and the same `{placeholder}` set. TypeScript already enforces key parity; a dropped placeholder is what it cannot see.
 
-`npm run verify:pack` 跑 `publint` 和 `@arethetypeswrong/cli`（`--profile node16`）。两处已知的例外：
+`npm run verify:pack` runs `publint` and `@arethetypeswrong/cli` (`--profile node16`). Two known exceptions:
 
-- publint 会报 `exports["./client"]` 是「CJS 却被当作 ESM」。`lib/client.js` 从来不经过 Node 解析 —— 它由页面的模块系统当作 classic script 执行。harness 自己对同名文件做了完全一样的豁免（`scripts/publint-all.ts` 里的 `isBrowserBundleFormatFalsePositive`）。
-- attw 的 `cjs-resolves-to-esm` 被显式忽略：这是个纯 ESM 包，CJS `require()` 不是目标。
+- publint reports `exports["./client"]` as "CJS written as ESM". `lib/client.js` is never resolved by Node — the page's module system evaluates it as a classic script. The harness suppresses exactly this verdict for exactly this filename (`isBrowserBundleFormatFalsePositive` in `scripts/publint-all.ts`).
+- attw's `cjs-resolves-to-esm` is ignored explicitly: this is an ESM-only package and a CJS `require()` of it is a non-goal.
 
-产物是 `lib/index.js`（ESM，宿主半边）和 `lib/client.js`（CJS，浏览器半边，带 `window.__ModuleLoader__.load({ id, factory })` 外壳）。`id` 必须与 `package.json` 的 `name` 一致，否则浏览器模块表取不到这个 factory。
+The artifacts are `lib/index.js` (ESM, host half) and `lib/client.js` (CJS, browser half, wrapped in `window.__ModuleLoader__.load({ id, factory })`). The `id` must equal the `name` in `package.json`, or the browser module table never finds the factory.
 
-浏览器 bundle 只允许 `require()` 平台种子模块（`react`、`react/jsx-runtime`、`react-dom`、`@deepseek-ai/cordis`、`dsh-client-store`、`dsh-client-ui-slots`、`dsh-client-ui-primitives`）。其他一切都必须内联进 bundle —— 模块表答不上来的 `require` 在 materialize 时直接抛错。因此 `@deepseek-ai/dsh-client-ui-settings` / `-renderer` 只做 type-only 引入（拿 `SlotMap` 和 `Context.slots` 的声明合并），运行时不碰。
+The browser bundle may only `require()` platform seed modules (`react`, `react/jsx-runtime`, `react-dom`, `@deepseek-ai/cordis`, `dsh-client-store`, `dsh-client-ui-slots`, `dsh-client-ui-primitives`). Everything else must be inlined — a `require` the table cannot answer throws at materialization. That is why `@deepseek-ai/dsh-client-ui-settings`, `-renderer`, and `-locale` are type-only imports (for the `SlotMap`, `Context.slots`, and `Context.locale` merges) and never touched at runtime.
 
-类型由 `tsc` 统一发到 `lib/types/`，两半各有一份入口声明（`.` → `lib/types/index.d.ts`，`./client` → `lib/types/client/index.d.ts`）。浏览器 bundle 不能用 tsdown 的 dts —— 它会把 `__ModuleLoader__` 的 banner/footer 一起裹进 `.d.cts`，那是解析不了的。
+Declarations come from `tsc` into `lib/types/`, one entry per half (`.` → `lib/types/index.d.ts`, `./client` → `lib/types/client/index.d.ts`). The browser bundle cannot use tsdown's dts pass: it would wrap the `__ModuleLoader__` banner and footer into a `.d.cts` that does not parse.
 
-## 装载
+## Install
 
-### 方式零：从 npm 安装（发布后）
+### From npm
 
 ```bash
 dsh plugin --profile web add dsh-version-inventory
 ```
 
-`package.json` 声明了 `dsh.bundle.patch`，所以 `dsh plugin` 装完会自动把它加进 `dsh.profile.bundles` 层叠，由本包的 `cordis.patch.yml` 用裸包名插入条目。
+`package.json` declares `dsh.bundle.patch`, so `dsh plugin` appends the package to `dsh.profile.bundles` after installing it, and this package's `cordis.patch.yml` inserts the plugin row by bare package name. Verify the layer before booting:
 
-### 方式一：profile patch（本地开发，无需安装）
+```bash
+dsh --profile web --dump-config
+```
 
-`~/.dsh/profiles/web/cordis.patch.yml`：
+### From GitHub
+
+```bash
+dsh plugin --profile web add github:kristol07/dsh-version-inventory
+```
+
+A git install fetches sources, not build output, so pnpm has to run this package's `prepare` script — and pnpm ≥10 refuses until you allow it. The first `add` fails and prints the exact key; put it in the profile's `pnpm-workspace.yaml` and re-run:
+
+```yaml
+allowBuilds:
+  dsh-version-inventory: true
+```
+
+That allowance is **permission to execute this package's code on your machine at install time**, outside any sandbox the agent runs under. Pin a commit (`github:kristol07/dsh-version-inventory#<sha>`) so a later push cannot silently change what runs — or use the npm or tarball route, neither of which needs any build permission.
+
+### From a tarball
+
+```bash
+npm pack
+dsh plugin --profile web add ./dsh-version-inventory-0.1.0.tgz
+```
+
+### From a local checkout, for development
+
+```bash
+dsh plugin --profile web add link:/path/to/dsh-version-inventory
+```
+
+`link:` symlinks the checkout, so `npm run build` is enough to pick up a change — no reinstall.
+
+Or skip installing entirely and point a patch layer at the build output. In `~/.dsh/profiles/web/cordis.patch.yml`:
 
 ```yaml
 - insert:
@@ -119,24 +159,20 @@ dsh plugin --profile web add dsh-version-inventory
       name: ../../plugins/dsh-version-inventory/lib/index.js
 ```
 
-相对路径会以该 patch 文件所在目录为基准锚定成 `file://` URL；client-modules 扫描再从这个文件向上找到本目录的 `package.json`，读到 `dsh.client` 和 `exports["./client"]`。web profile 是 `patchReload: live`，改 patch 不用重启。
+A relative name is anchored to that patch file's directory and becomes a `file://` URL; the client-modules scan then walks up from it to this package's `package.json` and reads `dsh.client` and `exports["./client"]`. The `web` profile is `patchReload: live`, so editing the patch needs no restart.
 
-### 方式二：从本地目录作为 bundle 安装
+Do **not** combine these routes — each inserts its own row.
 
-```bash
-dsh plugin --profile web add link:C:/Users/joell/.dsh/plugins/dsh-version-inventory
-```
+## Known limitations
 
-`link:` 建的是符号链接，改完代码 `npm run build` 就能生效，不用重装。
+- **One snapshot per mount.** The panel reads once when it mounts and then on the Refresh button; it does not subscribe to Loader changes.
+- **Read-only.** No enable/disable controls.
+- **Versions come from the `package.json` on disk.** A package that was hot-reloaded without its manifest changing still shows the on-disk version.
+- **Duplicate detection follows resolution.** Both copies must be referenced by some mount. A second copy sitting on disk that nothing references is invisible here.
+- **A preset row's fiber state depends on whether it has been mounted.** A preset no session has composed reports enablement but no runtime state, and `conditional` means a `!!js` gate only a real mount can decide.
+- **The config summary stops at the top level.** Nested structures show their shape; read `cordis.patch.yml` or the preset's composition file for full values.
+- **The route is local and same-origin only.** The inventory names host filesystem paths and config keys, so `/dsh-version-inventory/api/list` requires a loopback host, a same-origin `Origin`, and the `X-DSH-Version-Inventory: 1` header.
 
-三种方式**不要同时用**，否则会插入重复条目。
+## License
 
-## 已知限制
-
-- **一次读取一份快照**：面板挂载时读一次，之后靠「刷新」按钮，不订阅 Loader 变化。
-- **只读**：不提供启用/停用开关。
-- **版本来自磁盘上的 `package.json`**：一个热更新过、但 `package.json` 未随之改动的包，显示的仍是磁盘上的版本号。
-- **副本检测只看解析结果**：两份副本必须都被某个挂载引用才会被发现。装在磁盘上但没有任何条目引用的第二份副本，面板看不到。
-- **preset 行的 fiber 状态取决于是否已挂载**：一个还没有会话挂载过的 preset，其行只有启用状态，没有运行状态；`conditional` 表示 `!!js` 门只有真正挂载时才能判定。
-- **config 摘要只到顶层**：嵌套结构只显示形状，要看完整值请查 `cordis.patch.yml` 或 preset 的 composition 文件。
-- **路由只对本地同源开放**：清单会暴露宿主文件路径和 config 键名，所以 `/dsh-version-inventory/api/list` 要求 loopback host、同源 Origin，以及 `X-DSH-Version-Inventory: 1` 头。
+MIT © Joel Liu
