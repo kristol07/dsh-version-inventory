@@ -101,6 +101,8 @@ npm install && npm test
 - publint 会报 `exports["./client"]` 是「CJS 却被当作 ESM」。`lib/client.js` 从来不经过 Node 解析 —— 它由页面的模块系统当作 classic script 执行。harness 自己对同名文件做了完全一样的豁免（`scripts/publint-all.ts` 里的 `isBrowserBundleFormatFalsePositive`）。
 - attw 的 `cjs-resolves-to-esm` 被显式忽略：这是个纯 ESM 包，CJS `require()` 不是目标。
 
+发布前跑 `npm run release:check`，它把测试和打包检查一起跑一遍。打包检查刻意没放进 `prepublishOnly`：attw 的 `--pack` 会去调 `npm pack`，而 `npm pack` 会继承 `npm publish --dry-run` 传下来的 `npm_config_dry_run`，于是根本不产出 tarball —— 放在那里会让发布预演跑不起来。CI 每次推送都会跑这两项。
+
 产物是 `lib/index.js`（ESM，宿主半边）和 `lib/client.js`（CJS，浏览器半边，带 `window.__ModuleLoader__.load({ id, factory })` 外壳）。`id` 必须与 `package.json` 的 `name` 一致，否则浏览器模块表取不到这个 factory。
 
 浏览器 bundle 只允许 `require()` 平台种子模块（`react`、`react/jsx-runtime`、`react-dom`、`@deepseek-ai/cordis`、`dsh-client-store`、`dsh-client-ui-slots`、`dsh-client-ui-primitives`）。其他一切都必须内联进 bundle —— 模块表答不上来的 `require` 在 materialize 时直接抛错。因此 `@deepseek-ai/dsh-client-ui-settings` / `-renderer` / `-locale` 只做 type-only 引入（拿 `SlotMap`、`Context.slots` 和 `Context.locale` 的声明合并），运行时不碰。

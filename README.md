@@ -101,6 +101,8 @@ npm install && npm test
 - publint reports `exports["./client"]` as "CJS written as ESM". `lib/client.js` is never resolved by Node — the page's module system evaluates it as a classic script. The harness suppresses exactly this verdict for exactly this filename (`isBrowserBundleFormatFalsePositive` in `scripts/publint-all.ts`).
 - attw's `cjs-resolves-to-esm` is ignored explicitly: this is an ESM-only package and a CJS `require()` of it is a non-goal.
 
+`npm run release:check` runs the tests and the packaging checks together — run it before publishing. The packaging checks stay out of `prepublishOnly` on purpose: attw's `--pack` shells out to `npm pack`, which inherits `npm_config_dry_run` from `npm publish --dry-run` and then writes no tarball, so keeping them there would make the publish rehearsal unrunnable. CI runs them on every push.
+
 The artifacts are `lib/index.js` (ESM, host half) and `lib/client.js` (CJS, browser half, wrapped in `window.__ModuleLoader__.load({ id, factory })`). The `id` must equal the `name` in `package.json`, or the browser module table never finds the factory.
 
 The browser bundle may only `require()` platform seed modules (`react`, `react/jsx-runtime`, `react-dom`, `@deepseek-ai/cordis`, `dsh-client-store`, `dsh-client-ui-slots`, `dsh-client-ui-primitives`). Everything else must be inlined — a `require` the table cannot answer throws at materialization. That is why `@deepseek-ai/dsh-client-ui-settings`, `-renderer`, and `-locale` are type-only imports (for the `SlotMap`, `Context.slots`, and `Context.locale` merges) and never touched at runtime.

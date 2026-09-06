@@ -51,8 +51,9 @@
     "build": "tsc -p tsconfig.build.json && tsdown",
     "test": "npm run build && node --import tsx --test test/*.test.mjs",
     "verify:pack": "publint && attw --pack . --profile node16 --ignore-rules cjs-resolves-to-esm",
+    "release:check": "npm test && npm run verify:pack",
     "prepare": "npm run build",
-    "prepublishOnly": "npm test && npm run verify:pack"
+    "prepublishOnly": "npm test"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
