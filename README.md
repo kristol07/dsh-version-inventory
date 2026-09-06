@@ -15,6 +15,23 @@ Harness 把插件挂在**两个平面**上，面板两边都读：
 
 每个挂载都带自己的平面标记，面板顶部可以按平面过滤；同一个包在两个平面各挂一次，会合并成一行、列出两个挂载。
 
+## 「包」和「挂载」的区别
+
+**包是代码，挂载是这份代码的一次装载**：一个 id、一份 config、一个 fiber。同一个包被挂多次是设计意图，不是重复项 —— 官方 `@deepseek-ai/dsh-tool-subagent` 在创造模式里就被挂了三次，靠 config 区分成 `subagent` / `subagent_fork` / `subagent_codex` 三个工具。
+
+所以每个挂载都会显示自己的 config 摘要，这是唯一能把两次挂载分开的东西：
+
+```
+● tool-subagent       创造模式  运行中
+  provider=spawn  toolName=subagent  backgroundMode=continuable
+● tool-subagent-fork  创造模式  运行中
+  provider=fork   toolName=subagent_fork
+```
+
+摘要不是 config 的转储：只取顶层字段，嵌套值折叠成形状（`{provider, toolName, …}`、`[3]`），长字符串截断到 60 字符，超过 8 个字段的部分只计数。**键名带 `key` / `token` / `secret` / `password` / `credential` / `auth` 的字段一律只显示 `***`** —— 宁可多挡，漏一个 token 的代价是轮换密钥，多挡一个无害字段的代价只是去看一眼配置文件。
+
+preset composition 的清单本身不携带 config，所以 preset 行显示「config 不可见」，而不是显示成「无 config」。
+
 ## 它怎么拿到版本号
 
 两个平面给出的都只是**模块说明符**（`@deepseek-ai/dsh-tool-bash`、`file:///…/lib/index.js`），不记录版本。所以宿主半边做三件事：
@@ -89,4 +106,5 @@ dsh plugin --profile web add link:C:/Users/joell/.dsh/plugins/dsh-version-invent
 - **版本来自磁盘上的 `package.json`**：一个热更新过、但 `package.json` 未随之改动的包，显示的仍是磁盘上的版本号。
 - **副本检测只看解析结果**：两份副本必须都被某个挂载引用才会被发现。装在磁盘上但没有任何条目引用的第二份副本，面板看不到。
 - **preset 行的 fiber 状态取决于是否已挂载**：一个还没有会话挂载过的 preset，其行只有启用状态，没有运行状态；`conditional` 表示 `!!js` 门只有真正挂载时才能判定。
-- **路由只对本地同源开放**：清单会暴露宿主文件路径，所以 `/dsh-version-inventory/api/list` 要求 loopback host、同源 Origin，以及 `X-DSH-Version-Inventory: 1` 头。
+- **config 摘要只到顶层**：嵌套结构只显示形状，要看完整值请查 `cordis.patch.yml` 或 preset 的 composition 文件。
+- **路由只对本地同源开放**：清单会暴露宿主文件路径和 config 键名，所以 `/dsh-version-inventory/api/list` 要求 loopback host、同源 Origin，以及 `X-DSH-Version-Inventory: 1` 头。

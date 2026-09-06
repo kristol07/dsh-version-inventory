@@ -124,6 +124,97 @@ describe('global plane', () => {
   })
 })
 
+describe('config summary', () => {
+  it('tells two mounts of one package apart by their config', async () => {
+    const ctx = await harness()
+    await ctx.loader.create({
+      name: '@deepseek-ai/dsh-host-webserver',
+      disabled: true,
+      config: { provider: 'spawn', toolName: 'subagent', backgroundMode: 'continuable' },
+    })
+    await ctx.loader.create({
+      name: '@deepseek-ai/dsh-host-webserver',
+      disabled: true,
+      config: { provider: 'fork', toolName: 'subagent_fork' },
+    })
+
+    const row = pkg(await collect(ctx), '@deepseek-ai/dsh-host-webserver')
+    assert.equal(row.entries.length, 2)
+    assert.deepEqual(row.entries.map(entry => entry.config.map(field => field.key + '=' + field.value)), [
+      ['provider=spawn', 'toolName=subagent', 'backgroundMode=continuable'],
+      ['provider=fork', 'toolName=subagent_fork'],
+    ])
+  })
+
+  it('withholds a value whose key names a credential', async () => {
+    const ctx = await harness()
+    await ctx.loader.create({
+      name: '@deepseek-ai/dsh-host-webserver',
+      disabled: true,
+      config: { apiKey: 'sk-live-should-never-be-printed', api_token: 'x', host: '127.0.0.1' },
+    })
+
+    const fields = pkg(await collect(ctx), '@deepseek-ai/dsh-host-webserver').entries[0].config
+    assert.deepEqual(fields, [
+      { key: 'apiKey', value: '***', redacted: true },
+      { key: 'api_token', value: '***', redacted: true },
+      { key: 'host', value: '127.0.0.1', redacted: false },
+    ])
+  })
+
+  it('collapses a nested value to its shape instead of printing it', async () => {
+    const ctx = await harness()
+    await ctx.loader.create({
+      name: '@deepseek-ai/dsh-host-webserver',
+      disabled: true,
+      config: {
+        nested: { provider: 'a', toolName: 'b', mode: 'c', extra: 'd' },
+        list: [1, 2, 3],
+        empty: {},
+        nothing: null,
+        long: 'x'.repeat(80),
+      },
+    })
+
+    const fields = pkg(await collect(ctx), '@deepseek-ai/dsh-host-webserver').entries[0].config
+    assert.deepEqual(fields.map(field => field.value), [
+      '{provider, toolName, mode, …}',
+      '[3]',
+      '{}',
+      'null',
+      'x'.repeat(60) + '…',
+    ])
+  })
+
+  it('counts the fields it left out rather than growing without bound', async () => {
+    const ctx = await harness()
+    const config = Object.fromEntries(Array.from({ length: 12 }, (_, index) => ['f' + index, index]))
+    await ctx.loader.create({ name: '@deepseek-ai/dsh-host-webserver', disabled: true, config })
+
+    const entry = pkg(await collect(ctx), '@deepseek-ai/dsh-host-webserver').entries[0]
+    assert.equal(entry.config.length, 8)
+    assert.equal(entry.configOverflow, 4)
+  })
+
+  it('separates "no config" from "this plane reports no config"', async () => {
+    const ctx = await harness()
+    await ctx.loader.create({ name: '@deepseek-ai/dsh-host-webserver', disabled: true })
+    ctx.provide('agentPresets', {
+      list: async () => [],
+      compositionInventory: async () => [{
+        id: 'standard',
+        trust: 'system',
+        isDefault: true,
+        rows: [{ entryId: 'webserver', moduleName: '@deepseek-ai/dsh-host-webserver', enabled: true }],
+      }],
+    })
+
+    const row = pkg(await collect(ctx), '@deepseek-ai/dsh-host-webserver')
+    assert.deepEqual(row.entries[0].config, [])
+    assert.equal(row.entries[1].config, null)
+  })
+})
+
 describe('duplicate copies', () => {
   /** A `file:` entry for one fixture copy. */
   const copy = name => pathToFileURL(join(PACKAGE_ROOT, 'test/fixtures', name, 'index.js')).href

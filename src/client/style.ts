@@ -73,8 +73,12 @@ export const css = `
 .dvi-detail{padding:2px 14px 13px 30px;font-size:12px;display:grid;gap:3px 14px;grid-template-columns:auto minmax(0,1fr)}
 .dvi-detail dt{color:var(--dsw-alias-label-tertiary,#00000073)}
 .dvi-detail dd{margin:0;overflow-wrap:anywhere}
-.dvi-entries{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px}
-.dvi-entries li{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.dvi-entries{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:7px}
+.dvi-entries li{display:flex;flex-direction:column;gap:2px;padding-left:14px;border-left:2px solid var(--dsw-alias-border-l3,#0000001f)}
+.dvi-entry-head{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-left:-16px}
+.dvi-config{display:flex;gap:4px 12px;flex-wrap:wrap;color:var(--dsw-alias-label-tertiary,#00000073)}
+.dvi-config b{font-weight:500;color:var(--dsw-alias-label-secondary,#000000a6)}
+.dvi-config b.redacted{color:var(--dsw-alias-state-warn-label,#8a5a12);letter-spacing:.1em}
 
 .dvi-empty{padding:34px 14px;text-align:center;color:var(--dsw-alias-label-tertiary,#00000073)}
 @media(max-width:640px){.dvi-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}

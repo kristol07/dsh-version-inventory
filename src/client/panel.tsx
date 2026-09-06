@@ -99,6 +99,28 @@ function Dot({ phase, on, label }: { phase: FiberPhase, on: boolean, label: stri
   return <span className={'dvi-dot ' + (on ? phase ?? '' : 'off')} role="img" aria-label={label} title={label}/>
 }
 
+/**
+ * One mount's config summary — the only thing that tells two mounts of the
+ * same package apart.
+ */
+function ConfigSummary({ entry }: { entry: EntryRow }): ReactNode {
+  if (entry.config === null) {
+    return <span className="muted" title="preset composition 的清单不携带 config">config 不可见</span>
+  }
+  if (entry.config.length === 0) return <span className="muted">无 config</span>
+  return (
+    <span className="dvi-config">
+      {entry.config.map(field => (
+        <span key={field.key} className="mono">
+          {field.key}=
+          <b className={field.redacted ? 'redacted' : undefined}>{field.value}</b>
+        </span>
+      ))}
+      {entry.configOverflow > 0 && <span className="muted">+{entry.configOverflow}</span>}
+    </span>
+  )
+}
+
 /** The planes a package is mounted on, as compact tags. */
 function PlaneTags({ entries }: { entries: readonly EntryRow[] }): ReactNode {
   const global = entries.some(entry => entry.plane.kind === 'global')
@@ -149,20 +171,23 @@ function PackageCard({ row }: { row: PackageRow }): ReactNode {
           <ul className="dvi-entries">
             {row.entries.map((entry, index) => (
               <li key={(entry.entryId ?? entry.specifier) + '@' + String(index)}>
-                <Dot
-                  phase={entry.fiberPhase}
-                  on={isOn(entry.enabled)}
-                  label={enablementText(entry)}
-                />
-                <span className="mono">{entry.entryId ?? '（未声明 id）'}</span>
-                <span className="dvi-tag">{planeText(entry.plane)}</span>
-                <span className="muted">{enablementText(entry)}</span>
+                <span className="dvi-entry-head">
+                  <Dot
+                    phase={entry.fiberPhase}
+                    on={isOn(entry.enabled)}
+                    label={enablementText(entry)}
+                  />
+                  <span className="mono">{entry.entryId ?? '（未声明 id）'}</span>
+                  <span className="dvi-tag">{planeText(entry.plane)}</span>
+                  <span className="muted">{enablementText(entry)}</span>
+                  {entry.specifier !== row.name && <span className="mono muted">{entry.specifier}</span>}
+                </span>
+                <ConfigSummary entry={entry}/>
                 {entry.condition !== null && (
                   <span className="mono muted" title="该行自己的 !!js disabled 表达式">
                     disabled: {entry.condition}
                   </span>
                 )}
-                {entry.specifier !== row.name && <span className="mono muted">{entry.specifier}</span>}
               </li>
             ))}
           </ul>

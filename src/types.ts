@@ -36,6 +36,27 @@ export type EntryPlane =
     readonly isDefault: boolean
   }
 
+/**
+ * One top-level field of a mount's config, rendered for display.
+ *
+ * A config is the only thing that distinguishes two mounts of the same
+ * package — `@deepseek-ai/dsh-tool-subagent` mounted three times is
+ * `subagent`, `subagent_fork`, and `subagent_codex` — so the panel has to
+ * show it. It shows a summary, not the config: nested values collapse to
+ * their shape, long strings truncate, and a key that names a credential has
+ * its value withheld.
+ */
+export interface ConfigField {
+  readonly key: string
+  /**
+   * Display text: a scalar's own text (truncated), a shape marker such as
+   * `{provider, toolName}` or `[3]` for a nested value, or `***` when withheld.
+   */
+  readonly value: string
+  /** True when the value was withheld because the key names a credential. */
+  readonly redacted: boolean
+}
+
 /** One mount of a package: a Loader entry, or one preset composition row. */
 export interface EntryRow {
   /** Loader-tree entry id, the id a composition file declares, or null when it declares none. */
@@ -49,6 +70,14 @@ export interface EntryRow {
   readonly condition: string | null
   /** Root-fiber phase when the mount is live; null when it is not observed. */
   readonly fiberPhase: FiberPhase
+  /**
+   * Summary of the mount's config: an empty array when it declares none, and
+   * `null` when this plane does not report config at all — a preset
+   * composition row carries no config through the roster's inventory.
+   */
+  readonly config: readonly ConfigField[] | null
+  /** Top-level config fields beyond the ones listed in {@link config}. */
+  readonly configOverflow: number
 }
 
 /** One package, with every mount that resolved to it. */

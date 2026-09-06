@@ -19,6 +19,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Entry } from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import type {
+  ConfigField,
   EntryPlane,
   EntryRow,
   FiberPhase,
@@ -52,6 +53,67 @@ const FIBER_PHASE: Record<number, FiberPhase> = {
 
 /** The one plane marker every global Loader entry shares. */
 const GLOBAL_PLANE: EntryPlane = { kind: 'global' }
+
+/** Top-level config fields reported per mount; the rest are counted, not listed. */
+const CONFIG_FIELD_LIMIT = 8
+
+/** Longest string value shown before it is truncated. */
+const CONFIG_VALUE_LIMIT = 60
+
+/** Nested object keys named in a shape marker before it elides the rest. */
+const CONFIG_SHAPE_KEYS = 3
+
+/**
+ * Key fragments that make a value a credential rather than a setting. Matched
+ * against the key with its separators stripped, so `apiKey`, `api_key`, and
+ * `API-KEY` all hit. Over-redaction is the safe direction here: withholding a
+ * benign value costs a reader one glance at the config file, while printing a
+ * token costs a rotation.
+ */
+const SECRET_KEY_FRAGMENTS = ['key', 'token', 'secret', 'password', 'passwd', 'credential', 'auth']
+
+/** Whether a config key names something that must not be printed. */
+function isSecretKey(key: string): boolean {
+  const flattened = key.toLowerCase().replace(/[^a-z0-9]/g, '')
+  return SECRET_KEY_FRAGMENTS.some(fragment => flattened.includes(fragment))
+}
+
+/**
+ * Render one config value for display, without ever printing a nested value.
+ * @param value - the raw config value.
+ * @returns a scalar's own text (truncated), or a shape marker.
+ */
+function renderConfigValue(value: unknown): string {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return '[' + String(value.length) + ']'
+  if (typeof value === 'object') {
+    const keys = Object.keys(value as object)
+    if (keys.length === 0) return '{}'
+    const shown = keys.slice(0, CONFIG_SHAPE_KEYS).join(', ')
+    return '{' + shown + (keys.length > CONFIG_SHAPE_KEYS ? ', …' : '') + '}'
+  }
+  const text = String(value)
+  return text.length > CONFIG_VALUE_LIMIT ? text.slice(0, CONFIG_VALUE_LIMIT) + '…' : text
+}
+
+/**
+ * Summarize a mount's config into displayable top-level fields.
+ * @param config - the raw config the entry declares.
+ * @returns the fields shown and the count of those left out.
+ */
+function summarizeConfig(config: unknown): { fields: ConfigField[], overflow: number } {
+  if (config === undefined || config === null) return { fields: [], overflow: 0 }
+  if (typeof config !== 'object' || Array.isArray(config)) {
+    return { fields: [{ key: 'config', value: renderConfigValue(config), redacted: false }], overflow: 0 }
+  }
+  const entries = Object.entries(config as Record<string, unknown>)
+    .filter(([, value]) => value !== undefined)
+  const fields = entries.slice(0, CONFIG_FIELD_LIMIT).map(([key, value]) => {
+    const redacted = isSecretKey(key)
+    return { key, value: redacted ? '***' : renderConfigValue(value), redacted }
+  })
+  return { fields, overflow: Math.max(0, entries.length - fields.length) }
+}
 
 /** The manifest fields this plugin reads. Everything else in a package.json is ignored. */
 interface Manifest {
@@ -380,6 +442,7 @@ function collectGlobalPlane(ctx: Context, index: PackageIndex): string | undefin
     const baseUrl = entry.parent.tree.ctx.baseUrl
     observedBaseUrl ??= baseUrl
     const state = entry.fiber?.state
+    const config = summarizeConfig(entry.options.config)
     const row: EntryRow = {
       entryId: entry.id,
       specifier: entry.options.name,
@@ -387,6 +450,8 @@ function collectGlobalPlane(ctx: Context, index: PackageIndex): string | undefin
       enabled: !entry.disabled,
       condition: null,
       fiberPhase: state === undefined ? null : FIBER_PHASE[state] ?? null,
+      config: config.fields,
+      configOverflow: config.overflow,
     }
     index.add(
       baseUrl === undefined ? undefined : locatePackage(ctx.loader, row.specifier, [baseUrl]),
@@ -459,6 +524,10 @@ async function collectPresetPlane(
         enabled: row.enabled,
         condition: row.condition ?? null,
         fiberPhase: row.fiberState === undefined ? null : FIBER_PHASE[row.fiberState] ?? null,
+        // The roster's composition inventory carries no config, so this plane
+        // reports none rather than an empty one that would read as "no config".
+        config: null,
+        configOverflow: 0,
       })
     }
     summaries.push({
